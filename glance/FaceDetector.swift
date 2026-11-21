@@ -70,8 +70,8 @@ nonisolated enum FaceDetector {
                 boundingBox: convertToImageSpace(normalizedRect, imageSize: imageSize),
                 normalizedBoundingBox: normalizedRect,
                 quality: qualityResults.indices.contains(index) ? qualityResults[index].captureQuality?.score : nil,
-                yaw: radians(observation.yaw).map { -$0 },
-                roll: radians(observation.roll).map { -$0 },
+                yaw: radians(observation.yaw),
+                roll: radians(observation.roll),
                 pitch: radians(observation.pitch),
                 landmarks: landmarkResults.indices.contains(index)
                     ? landmarkResults[index].landmarks.map { FaceLandmarks($0, imageSize: imageSize) }
@@ -81,10 +81,10 @@ nonisolated enum FaceDetector {
         }
     }
 
-    /// Yaw and roll are negated to keep the revision-3 sign convention the rest of the app (onboarding's guided-pose
-    /// yaw, in particular) was written against: measured on live frames, revision 4's yaw and roll come out with the
-    /// opposite sign to revision 3's — yaw against the nose-offset-from-eye-midline, roll against the eye-line angle
-    /// (correlations flip from -0.75/+0.52 to +0.83/-0.45). Pitch agrees in sign and is passed through.
+    /// Angles pass through with revision 4's own signs, which match the revision-3 convention the rest of the app —
+    /// onboarding's guided poses in particular — was tuned against. Yaw is confirmed by a real guided enrollment: an
+    /// earlier version negated yaw and roll on the strength of near-frontal test frames, and that inverted the
+    /// left/right guidance. Pitch agreed in sign on live frames; roll is unused today.
     ///
     /// The Swift API exposes head angles as `Measurement<UnitAngle>`; the rest of the app works in radians. Non-finite
     /// values (no estimate) become `nil`, matching the optional the legacy API returned.
