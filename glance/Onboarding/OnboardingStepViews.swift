@@ -262,6 +262,9 @@ struct EnrollStepView: View {
                     controller.back()
                 }
                 .padding(OnboardingMetrics.enrollCloseButtonEdgePadding)
+                // On a Dynamic Island display the camera is on here, so macOS shows its camera indicator in the
+                // island band across this panel's top — including a preview bubble right where this button would sit.
+                .padding(.top, style == .island ? OnboardingMetrics.enrollCloseButtonIslandExtraTopPadding : 0)
             }
         }
         .background(GlanceTheme.panel)

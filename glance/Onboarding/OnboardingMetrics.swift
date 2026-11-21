@@ -232,6 +232,9 @@ enum OnboardingMetrics {
     /// enroll content padding so the control sits on the window chrome,
     /// not the camera cluster.
     static let enrollCloseButtonEdgePadding: CGFloat = 18
+    /// Island style: pushes the close button below the island's band, where macOS draws its camera indicator while
+    /// enrollment has the camera on (panel top + 18 + 22 = 48pt from the screen top, clear of the band's 40).
+    static let enrollCloseButtonIslandExtraTopPadding: CGFloat = 22
 
     static let enrollTooFarChevronSize: CGFloat = 32
     static let enrollInstructionFadeIn: Double = 0.3

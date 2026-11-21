@@ -2,9 +2,9 @@
 //  MinimalUnlockView.swift
 //  glance
 //
-//  Layout: [ lock ][ gap ][ video ]. For `.notch` and `.island` the gap is the
-//  physical camera cutout (nothing may be drawn there); for `.pill` it's just
-//  negative space.
+//  Layout: [ lock ][ gap ][ video ]. For `.notch` the gap is the physical
+//  cutout (nothing may be drawn there); for `.pill` — and `.island`, whose
+//  minimal capsule hangs below the camera — it's just negative space.
 
 import SwiftUI
 

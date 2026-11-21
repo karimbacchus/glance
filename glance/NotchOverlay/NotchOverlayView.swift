@@ -96,8 +96,7 @@ struct NotchOverlayView: View {
     }
 
     /// In notch style the width grows to add flanking black beside the physical cutout;
-    /// the height grows since the cutout itself can't, so the bump appears below it. The
-    /// island only widens — iPhone's compact Live Activity — keeping the hardware's height.
+    /// the height grows since the cutout itself can't, so the bump appears below it.
     private var minimalOpenBodySize: CGSize {
         switch style {
         case .notch:
@@ -105,12 +104,9 @@ struct NotchOverlayView: View {
                 width: closedBodySize.width + NotchGeometry.minimalNotchFlankWidth * 2,
                 height: closedBodySize.height + NotchGeometry.minimalNotchHeightBump
             )
-        case .island:
-            return CGSize(
-                width: closedBodySize.width + NotchGeometry.islandMinimalFlankWidth * 2,
-                height: closedBodySize.height
-            )
-        case .pill:
+        // The island's hangs below the island (see `NotchGeometry.expandedTopInset`), so there's no camera to
+        // flank — the same capsule as the pill.
+        case .island, .pill:
             return CGSize(
                 width: NotchGeometry.minimalPillOpenWidth,
                 height: NotchGeometry.minimalPillOpenHeight
@@ -178,14 +174,23 @@ struct NotchOverlayView: View {
     /// Top-aligned inside the fixed window frame, so sliding is purely a matter of
     /// where the top edge sits.
     private var verticalOffset: CGFloat {
-        guard style == .pill else {
-            // Notch: flush with the top edge. Island: level with the hardware, a few points below it.
-            return controller.geometry.closedTopInset
+        switch style {
+        case .notch:
+            return 0
+        case .island:
+            // At rest: level with the hardware. Expanded for a scan: dropped below the island's band, clear of the
+            // camera indicator macOS draws there (see `NotchGeometry.expandedTopInset`) — animating with the expansion,
+            // so the panel visibly drops out of the island and folds back into it. Onboarding stays docked: the camera
+            // is off for all but its enroll step, and it already keeps its content below the island.
+            return visualIsExpanded && onboardingController == nil
+                ? controller.geometry.expandedTopInset
+                : controller.geometry.closedTopInset
+        case .pill:
+            guard visualIsPositioned else {
+                return -(closedBodySize.height + NotchGeometry.pillOffscreenSlack)
+            }
+            return NotchGeometry.pillTopGap
         }
-        guard visualIsPositioned else {
-            return -(closedBodySize.height + NotchGeometry.pillOffscreenSlack)
-        }
-        return NotchGeometry.pillTopGap
     }
 
     /// So it resolves into focus as it slides down, rather than snapping in.
@@ -196,7 +201,7 @@ struct NotchOverlayView: View {
     private var scanContentPaddingTop: CGFloat {
         switch style {
         case .notch: return NotchGeometry.notchContentPaddingTop
-        case .island: return NotchGeometry.islandContentPaddingTop
+        case .island: return NotchGeometry.islandContentPadding
         case .pill: return NotchGeometry.pillContentPaddingTop
         }
     }
@@ -204,7 +209,7 @@ struct NotchOverlayView: View {
     private var scanContentPaddingLeading: CGFloat {
         switch style {
         case .notch: return NotchGeometry.notchContentPaddingLeading
-        case .island: return NotchGeometry.islandContentPaddingSide
+        case .island: return NotchGeometry.islandContentPadding
         case .pill: return NotchGeometry.pillContentPaddingLeading
         }
     }
@@ -212,7 +217,7 @@ struct NotchOverlayView: View {
     private var scanContentPaddingTrailing: CGFloat {
         switch style {
         case .notch: return NotchGeometry.notchContentPaddingTrailing
-        case .island: return NotchGeometry.islandContentPaddingSide
+        case .island: return NotchGeometry.islandContentPadding
         case .pill: return NotchGeometry.pillContentPaddingTrailing
         }
     }
@@ -220,7 +225,7 @@ struct NotchOverlayView: View {
     private var scanContentPaddingBottom: CGFloat {
         switch style {
         case .notch: return NotchGeometry.notchContentPaddingBottom
-        case .island: return NotchGeometry.islandContentPaddingBottom
+        case .island: return NotchGeometry.islandContentPadding
         case .pill: return NotchGeometry.pillContentPaddingBottom
         }
     }
@@ -285,38 +290,24 @@ struct NotchOverlayView: View {
     }
 
     // MARK: - Minimal style metrics, per silhouette
+    //
+    // The island's minimal capsule hangs below the island, clear of the camera, so it shares the pill's metrics.
 
     private var minimalEdgeInset: CGFloat {
-        switch style {
         // The notch's flare eats `topRadius` before any real black starts.
-        case .notch: return NotchGeometry.minimalContentEdgeInset + topRadius
-        case .island: return NotchGeometry.islandMinimalEdgeInset
-        case .pill: return NotchGeometry.minimalContentEdgeInset
-        }
+        style == .notch ? NotchGeometry.minimalContentEdgeInset + topRadius : NotchGeometry.minimalContentEdgeInset
     }
 
     private var minimalLockIconSize: CGFloat {
-        switch style {
-        case .notch: return NotchGeometry.minimalNotchLockIconSize
-        case .island: return NotchGeometry.islandMinimalLockIconSize
-        case .pill: return NotchGeometry.minimalLockIconSize
-        }
+        style == .notch ? NotchGeometry.minimalNotchLockIconSize : NotchGeometry.minimalLockIconSize
     }
 
     private var minimalMediaWidth: CGFloat {
-        switch style {
-        case .notch: return NotchGeometry.minimalNotchMediaWidth
-        case .island: return NotchGeometry.islandMinimalMediaWidth
-        case .pill: return NotchGeometry.minimalMediaWidth
-        }
+        style == .notch ? NotchGeometry.minimalNotchMediaWidth : NotchGeometry.minimalMediaWidth
     }
 
     private var minimalMediaVerticalInset: CGFloat {
-        switch style {
-        case .notch: return NotchGeometry.minimalNotchMediaVerticalInset
-        case .island: return NotchGeometry.islandMinimalMediaVerticalInset
-        case .pill: return NotchGeometry.minimalMediaVerticalInset
-        }
+        style == .notch ? NotchGeometry.minimalNotchMediaVerticalInset : NotchGeometry.minimalMediaVerticalInset
     }
 
     var body: some View {
@@ -401,8 +392,8 @@ struct NotchOverlayView: View {
         }
         .onChange(of: controller.isPillDocked) { _, _ in scheduleChoreography() }
         .frame(
-            width: NotchGeometry.windowSize(for: style).width,
-            height: NotchGeometry.windowSize(for: style).height,
+            width: NotchGeometry.windowSize(for: controller.geometry).width,
+            height: NotchGeometry.windowSize(for: controller.geometry).height,
             alignment: .top
         )
         // Anchored on this outermost, full-window-sized frame so the panel's

@@ -155,7 +155,7 @@ final class NotchWindowController {
         if let window { return window }
         // Never resized afterward (see NotchWindow.swift), so a style change
         // mid-session keeps whatever margin it was created with.
-        let size = NotchGeometry.windowSize(for: currentGeometry.style)
+        let size = NotchGeometry.windowSize(for: currentGeometry)
         let rect = NSRect(x: 0, y: 0, width: size.width, height: size.height)
         let newWindow = NotchWindow(contentRect: rect)
         // The panel's own SwiftUI animation has already reached its closed notch

@@ -13,13 +13,26 @@ struct NotchGeometry {
     let closedSize: CGSize
     let style: NotchPanelStyle
 
-    /// Distance from the screen's top edge to the top of the resting silhouette — and, since every style grows
-    /// downward from its top edge, of the expanded panel too. The pill's slide-in animates away from this.
+    /// Distance from the screen's top edge to the top of the resting silhouette. The pill's slide-in animates away
+    /// from this.
     var closedTopInset: CGFloat {
         switch style {
         case .notch: return 0
         case .island: return Self.islandTopInset
         case .pill: return Self.pillTopGap
+        }
+    }
+
+    /// Where an expanded *scan* panel's top edge sits. Notch and pill grow downward from where they rest. The island
+    /// can't: a scan always has the camera on, and on these displays macOS then shows its camera-in-use indicator *in*
+    /// the island — the capsule widens (~142pt, with a green dot and camera glyph) and a live-preview bubble appears
+    /// beside it — drawn above every app window, by design, so no app can hide camera use. Growing over the island
+    /// would put Glance underneath that. So the expanded panel drops just below the island's band instead, where
+    /// nothing covers it, and folds back up into the island when it collapses.
+    var expandedTopInset: CGFloat {
+        switch style {
+        case .island: return closedTopInset + closedSize.height + Self.islandDropGap
+        case .notch, .pill: return closedTopInset
         }
     }
 
@@ -58,26 +71,17 @@ struct NotchGeometry {
     /// are several times wider than tall (~180–200 x 32–38pt), the island barely wider than tall (59 x 40pt).
     static let islandMaxAspectRatio: CGFloat = 3
 
-    /// Expanded scan-mode footprint: the rounded square the island grows into, like Face ID on iPhone. A little taller
-    /// than wide so the animation sits below the camera rather than crowding it.
-    static let islandOpenSize = CGSize(width: 180, height: 188)
+    /// Gap between the bottom of the island's band and an expanded scan panel hanging below it (see
+    /// `expandedTopInset`) — far enough that the two read as separate shapes, close enough to read as related.
+    static let islandDropGap: CGFloat = 5
+
+    /// Expanded scan-mode footprint, hanging below the island. Rounded square, like Face ID on iPhone. Minimal style
+    /// reuses the pill's capsule metrics: below the island there's no camera to flank.
+    static let islandOpenSize = CGSize(width: 180, height: 180)
     /// Large and continuous, like an expanded iPhone island; matches the pill's open radius closely.
     static let islandOpenCornerRadius: CGFloat = 46
-
-    /// Scan-mode content insets. The top is deeper than the rest: the camera occupies the panel's top-center
-    /// `closedSize.height` points, and the animation must sit fully below it.
-    static let islandContentPaddingTop: CGFloat = 40
-    static let islandContentPaddingSide: CGFloat = 32
-    static let islandContentPaddingBottom: CGFloat = 32
-
-    /// Minimal style: the island stretches sideways into a wider capsule — iPhone's compact Live Activity — keeping
-    /// the hardware's own height, with the lock glyph and the animation flanking the camera. Each flank must fit
-    /// `islandMinimalEdgeInset + islandMinimalMediaWidth`, or content would slide under the camera.
-    static let islandMinimalFlankWidth: CGFloat = 40
-    static let islandMinimalEdgeInset: CGFloat = 6
-    static let islandMinimalLockIconSize: CGFloat = 13
-    static let islandMinimalMediaWidth: CGFloat = 30
-    static let islandMinimalMediaVerticalInset: CGFloat = 6
+    /// Uniform scan-content inset — the camera is no longer inside the expanded panel.
+    static let islandContentPadding: CGFloat = 32
 
     static let islandShadowPadding: CGFloat = 24
 
@@ -217,8 +221,8 @@ struct NotchGeometry {
     static let notchShadowPadding: CGFloat = 24
     static let pillShadowPadding: CGFloat = 24
 
-    static func windowSize(for style: NotchPanelStyle) -> CGSize {
-        switch style {
+    static func windowSize(for geometry: NotchGeometry) -> CGSize {
+        switch geometry.style {
         case .notch:
             let contentWidth = max(notchOpenSize.width, OnboardingMetrics.maxPanelWidth)
             let contentHeight = max(notchOpenSize.height, OnboardingMetrics.maxPanelHeight(for: .notch))
@@ -228,11 +232,14 @@ struct NotchGeometry {
             )
         case .island:
             let contentWidth = max(islandOpenSize.width, OnboardingMetrics.maxPanelWidth)
-            let contentHeight = max(islandOpenSize.height, OnboardingMetrics.maxPanelHeight(for: .island))
+            // Onboarding docks on the island; scan panels hang below its band — whichever reaches lower.
+            let bottom = max(
+                geometry.closedTopInset + OnboardingMetrics.maxPanelHeight(for: .island),
+                geometry.expandedTopInset + islandOpenSize.height
+            )
             return CGSize(
                 width: contentWidth + islandShadowPadding * 2 + hoverBump,
-                // The whole panel hangs `islandTopInset` below the top edge, level with the hardware.
-                height: contentHeight + islandShadowPadding + hoverBump + islandTopInset
+                height: bottom + islandShadowPadding + hoverBump
             )
         case .pill:
             let contentWidth = max(pillOpenSize.width, OnboardingMetrics.maxPanelWidth)
