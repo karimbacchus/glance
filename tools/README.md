@@ -1,21 +1,24 @@
 # Converting ArcFace to Core ML
 
-`convert_arcface.py` turns InsightFace's official `w600k_mbf` ArcFace weights
-(ONNX) into `glance/Models/ArcFace.mlpackage`, ready for `ArcFaceEmbedder.swift`
-to load. Run this yourself — it downloads ~2GB of Python tooling (torch,
-coremltools) and ~13MB of model weights from InsightFace's own hosting.
+`convert_arcface.py` turns InsightFace's official ArcFace weights (ONNX) into
+`glance/Models/ArcFace.mlpackage`, ready for `ArcFaceEmbedder.swift` to load.
+The bundled model is **w600k_r50** (ResNet-50, from the `buffalo_l` pack, ~83MB
+as FP16) — build it with `--variant w600k_r50`. Run this yourself — it
+downloads ~2GB of Python tooling (torch, coremltools) and ~290MB for the
+`buffalo_l` pack (of which `w600k_r50.onnx` is ~174MB) from InsightFace's own hosting.
 
 ## Run it
 
 ```bash
-cd /Users/jonathanzhou/Documents/glance
+cd /path/to/glance
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r tools/requirements.txt
-python tools/convert_arcface.py
+python tools/convert_arcface.py --variant w600k_r50
 ```
 
-First run downloads the InsightFace `buffalo_s` model pack to
+(`--output PATH` writes the package somewhere other than `glance/Models/`.)
+First run downloads the InsightFace `buffalo_l` model pack to
 `~/.insightface/models/` (cached for next time). The script then:
 
 1. Converts ONNX → torch → Core ML, baking preprocessing (RGB, `(px-127.5)/127.5`)
@@ -45,11 +48,11 @@ The model is committed to git (see the repo's `.gitignore` — only the
 ## If auto-download fails
 
 InsightFace's model hosting occasionally moves. If `FaceAnalysis(...).prepare()`
-fails, download `w600k_mbf.onnx` yourself from the InsightFace model zoo and
+fails, download `w600k_r50.onnx` (inside `buffalo_l.zip` on the InsightFace v0.7 release) yourself and
 run:
 
 ```bash
-python tools/convert_arcface.py --onnx-path /path/to/w600k_mbf.onnx
+python tools/convert_arcface.py --variant w600k_r50 --onnx-path /path/to/w600k_r50.onnx
 ```
 
 ## Model contract (what Swift expects)
@@ -60,6 +63,7 @@ python tools/convert_arcface.py --onnx-path /path/to/w600k_mbf.onnx
 | Output | `embedding`, 512 floats, **not** L2-normalized — Swift normalizes it |
 | Preprocessing | Baked in: `(pixel - 127.5) / 127.5`, RGB channel order |
 
-If you ever swap in a different ArcFace variant (e.g. `w600k_r50` via
-`--variant w600k_r50`), this contract stays the same — only the file size
-and latency change.
+The lighter `w600k_mbf` variant (MobileFaceNet, ~6.6MB, the script's default
+`--variant`) satisfies the same contract; only file size and latency change.
+Switching variants also requires a new `ArcFaceEmbedder.modelIdentifier`, which
+flags existing enrollments for recapture.

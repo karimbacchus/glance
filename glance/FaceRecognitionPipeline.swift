@@ -35,10 +35,12 @@ nonisolated enum FaceRecognitionPipelineError: LocalizedError {
 @MainActor
 final class FaceRecognitionPipeline {
     /// One embedder for the whole process. Every pipeline (unlock, each onboarding flow, Face Lab) used to load its own
-    /// copy of the ArcFace model, and the first copy loaded synchronously on the main thread during launch (~0.4s cold
-    /// on Apple silicon). `static let` gives thread-safe one-time initialization, so a main-actor read that
-    /// races `preloadSharedEmbedder()` simply waits for it. Sharing is safe: `ArcFaceEmbedder` holds no per-call mutable
-    /// state, `CVPixelBufferPool` is thread-safe, and Core ML serializes concurrent synchronous predictions on one model.
+    /// copy of the ArcFace model, and the first copy loaded synchronously on the main thread during launch (~0.07s
+    /// typical, up to ~0.2s on the first launch after a fresh compile, for the ~83MB ResNet-50 model on Apple silicon).
+    /// `static let` gives thread-safe one-time initialization, so a main-actor read that races
+    /// `preloadSharedEmbedder()` simply waits for it. Sharing is safe: `ArcFaceEmbedder` holds no per-call mutable
+    /// state, `CVPixelBufferPool` is thread-safe, and Core ML serializes concurrent synchronous predictions on one
+    /// model.
     nonisolated private static let shared: (embedder: FaceEmbedder, fallbackReason: String?) = {
         do {
             return (try ArcFaceEmbedder(), nil)

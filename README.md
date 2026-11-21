@@ -41,7 +41,7 @@ https://github.com/user-attachments/assets/77438826-80a9-4ab2-9fc3-42407a2d0adb
 
 **Requirements:**
 - macOS 27 or later
-- Apple Silicon or Intel Mac
+- A Mac with Apple silicon (macOS 27 no longer runs on Intel Macs)
 
 <a href="https://github.com/jonnyoo/glance/releases/latest/download/Glance.dmg" target="_self"><img width="200" src="https://github.com/user-attachments/assets/cdb8af97-1ee2-4669-b7cb-dcfb56c9dd61" alt="Download for Mac" /></a>
 
