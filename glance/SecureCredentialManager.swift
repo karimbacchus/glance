@@ -151,6 +151,8 @@ enum SecureCredentialManager {
         )
 
         // Read back through the gated path rather than trusting the write — only a real read proves authentication happened.
+        // This is the first-run path's only prompt: the existence check above and `SecItemAdd` don't prompt (adding a gated
+        // item needs no authorization), so one unlock is still one prompt.
         let readBackContext = LAContext()
         readBackContext.localizedReason = reason
         let data = try KeychainManager.read(account: sessionKeyAccount, context: readBackContext)

@@ -98,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if GlanceSettings.shared.hasCompletedOnboarding {
             if GlanceSettings.shared.hasAcknowledgedSecurityNotice {
                 startUpdaterIfNeeded()
+                promptToUnlockSessionAtLaunch()
             } else {
                 // Upgraded from a version before the notice existed — show it once, standalone.
                 presentPostUpdateSecurityNotice()
@@ -105,6 +106,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             presentOnboardingGate()
         }
+    }
+
+    /// Set while a launch-time unlock is waiting for the screen to unlock; also guarantees a single prompt.
+    private var screenUnlockObserver: NSObjectProtocol?
+    private var hasPromptedForLaunchUnlock = false
+
+    /// Every launch starts with the session locked, which silently disables Face Unlock. Ask once up front (one Touch ID
+    /// prompt). Only reached with onboarding done and the security notice acknowledged. If the screen is locked (e.g. a
+    /// login-item launch with nobody at the Mac), wait for it to unlock instead. A cancelled prompt leaves the session locked.
+    private func promptToUnlockSessionAtLaunch() {
+        guard !hasPromptedForLaunchUnlock else { return }
+        guard SecureCredentialManager.hasStoredPassword(), !SecureCredentialManager.isSessionUnlocked else { return }
+        guard !LockMonitor.isScreenActuallyLocked() else {
+            guard screenUnlockObserver == nil else { return }
+            screenUnlockObserver = DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let observer = self.screenUnlockObserver else { return }
+                    DistributedNotificationCenter.default().removeObserver(observer)
+                    self.screenUnlockObserver = nil
+                    self.promptToUnlockSessionAtLaunch()
+                }
+            }
+            return
+        }
+        hasPromptedForLaunchUnlock = true
+        Task { await environment.pocController.unlockSession(reason: "Unlock Glance so Face Unlock can work") }
     }
 
     /// Creates or removes the status item without changing whether the app is

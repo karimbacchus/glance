@@ -39,11 +39,11 @@ final class POCController {
     // MARK: - Session (Touch ID gate)
 
     /// Must succeed before `savePassword()` or `injectStoredPassword()` will do anything.
-    func unlockSession() async {
+    func unlockSession(reason: String = "Authenticate to set up or use glance") async {
         sessionError = nil
         do {
             try await Task.detached(priority: .userInitiated) {
-                try SecureCredentialManager.unlockSession(reason: "Authenticate to set up or use glance")
+                try SecureCredentialManager.unlockSession(reason: reason)
             }.value
             isSessionUnlocked = true
         } catch {

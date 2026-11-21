@@ -36,13 +36,22 @@ enum KeychainError: LocalizedError {
 enum KeychainManager {
     nonisolated static let service = "com.jonathan.glance"
 
-    /// Attributes-only existence check — never prompts, even for access-controlled items.
+    /// Attributes-only existence check — must never prompt, even for access-controlled items. A prompt here would be a second
+    /// authorization on top of the real read (the "asked for my password twice" bug), so the query carries an `LAContext` with
+    /// `interactionNotAllowed`: per the SDK headers this has the same effect as the deprecated `kSecUseAuthenticationUI` =
+    /// `...UIFail` (`errSecInteractionNotAllowed` instead of UI). Only `errSecItemNotFound` means absent — any other status
+    /// (including interaction-not-allowed / auth-failed) means an item is there that we just weren't allowed to touch.
+    /// Deliberately not `kSecUseAuthenticationUISkip`: it silently drops gated items, which would report "absent" and let
+    /// `unlockSession` mint a new key over the existing one.
     nonisolated static func exists(account: String) -> Bool {
+        let context = LAContext()
+        context.interactionNotAllowed = true
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: context
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
