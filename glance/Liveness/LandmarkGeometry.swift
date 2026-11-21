@@ -6,10 +6,9 @@
 //  moved out of `FaceAligner` so the two call sites can't drift apart.
 //
 
-import Vision
 import CoreGraphics
 
-/// Every landmark region this app reads from `VNFaceLandmarks2D`. Includes several regions
+/// Every landmark region this app reads from `FaceLandmarks`. Includes several regions
 /// `FaceAligner` never needed — liveness samples more of them for its residual-coherence check.
 enum LandmarkRegion: String, CaseIterable, Hashable {
     case leftEye, rightEye
@@ -29,15 +28,11 @@ struct LandmarkPoint {
 
 /// Pure geometry — `nonisolated` so it's callable from the same background
 /// tasks `FaceAligner`/`FaceDetector` already run on.
+///
+/// Region points are `FaceLandmarks` points: image-space pixels, top-left origin, y down — the same space as
+/// `DetectedFace.boundingBox` (`FaceDetector` does the one-time conversion from Vision's normalized points).
 nonisolated enum LandmarkGeometry {
-    /// Vision returns points in bottom-left-origin, y-up; flipped here to top-left/y-down
-    /// to match `DetectedFace.boundingBox`.
-    static func imagePoints(of region: VNFaceLandmarkRegion2D, imageSize: CGSize) -> [CGPoint] {
-        region.pointsInImage(imageSize: imageSize).map { CGPoint(x: $0.x, y: imageSize.height - $0.y) }
-    }
-
-    static func centroid(of region: VNFaceLandmarkRegion2D, imageSize: CGSize) -> CGPoint? {
-        let points = imagePoints(of: region, imageSize: imageSize)
+    static func centroid(of points: [CGPoint]) -> CGPoint? {
         guard !points.isEmpty else { return nil }
         let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
         return CGPoint(x: sum.x / CGFloat(points.count), y: sum.y / CGFloat(points.count))
@@ -46,25 +41,23 @@ nonisolated enum LandmarkGeometry {
     /// Prefers the pupil landmark (a precise point) over the eye outline's
     /// centroid (an approximation from eyelid boundary points) when Vision
     /// provides one.
-    static func eyeCenter(pupil: VNFaceLandmarkRegion2D?, eye: VNFaceLandmarkRegion2D?, imageSize: CGSize) -> CGPoint? {
-        if let pupil, let center = centroid(of: pupil, imageSize: imageSize) { return center }
-        if let eye { return centroid(of: eye, imageSize: imageSize) }
-        return nil
+    static func eyeCenter(pupil: [CGPoint], eye: [CGPoint]) -> CGPoint? {
+        centroid(of: pupil) ?? centroid(of: eye)
     }
 
     /// Distance between the two eye centers — the normalization scale used throughout
     /// liveness scoring so scores stay comparable regardless of camera distance.
-    static func interocularDistance(from landmarks: VNFaceLandmarks2D, imageSize: CGSize) -> CGFloat? {
-        guard let left = eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye, imageSize: imageSize),
-              let right = eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye, imageSize: imageSize)
+    static func interocularDistance(from landmarks: FaceLandmarks) -> CGFloat? {
+        guard let left = eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye),
+              let right = eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye)
         else { return nil }
         return hypot(left.x - right.x, left.y - right.y)
     }
 
     /// Height/width of a landmark region's bounding box — a stand-in for the classic
-    /// 6-point eye-aspect-ratio (Vision's point count isn't the fixed 6 that assumes).
-    private static func boundingBoxAspectRatio(of region: VNFaceLandmarkRegion2D, imageSize: CGSize) -> CGFloat? {
-        let points = imagePoints(of: region, imageSize: imageSize)
+    /// 6-point eye-aspect-ratio. Deliberately count-agnostic: the number of points per region differs between Vision
+    /// landmark revisions, so this never indexes specific points, and abstains (`nil`) on a degenerate region.
+    private static func boundingBoxAspectRatio(of points: [CGPoint]) -> CGFloat? {
         guard points.count >= 3, let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
               let minY = points.map(\.y).min(), let maxY = points.map(\.y).max()
         else { return nil }
@@ -73,33 +66,16 @@ nonisolated enum LandmarkGeometry {
         return (maxY - minY) / width
     }
 
-    static func eyeAspectRatio(of eyeRegion: VNFaceLandmarkRegion2D, imageSize: CGSize) -> CGFloat? {
-        boundingBoxAspectRatio(of: eyeRegion, imageSize: imageSize)
+    static func eyeAspectRatio(of eyePoints: [CGPoint]) -> CGFloat? {
+        boundingBoxAspectRatio(of: eyePoints)
     }
 
-    static func region(_ region: LandmarkRegion, of landmarks: VNFaceLandmarks2D) -> VNFaceLandmarkRegion2D? {
-        switch region {
-        case .leftEye: return landmarks.leftEye
-        case .rightEye: return landmarks.rightEye
-        case .leftEyebrow: return landmarks.leftEyebrow
-        case .rightEyebrow: return landmarks.rightEyebrow
-        case .nose: return landmarks.nose
-        case .noseCrest: return landmarks.noseCrest
-        case .outerLips: return landmarks.outerLips
-        case .innerLips: return landmarks.innerLips
-        case .faceContour: return landmarks.faceContour
-        case .medianLine: return landmarks.medianLine
-        }
-    }
-
-    /// Every point Vision detected, tagged by region and position so a later frame's
+    /// Every point detected, tagged by region and position so a later frame's
     /// points can be matched back up; a region missing this frame just contributes nothing.
-    static func allPoints(from landmarks: VNFaceLandmarks2D, imageSize: CGSize) -> [LandmarkPoint] {
+    static func allPoints(from landmarks: FaceLandmarks) -> [LandmarkPoint] {
         var result: [LandmarkPoint] = []
         for regionCase in LandmarkRegion.allCases {
-            guard let vnRegion = region(regionCase, of: landmarks) else { continue }
-            let points = imagePoints(of: vnRegion, imageSize: imageSize)
-            for (index, point) in points.enumerated() {
+            for (index, point) in landmarks.points(for: regionCase).enumerated() {
                 result.append(LandmarkPoint(point: point, region: regionCase, indexInRegion: index))
             }
         }

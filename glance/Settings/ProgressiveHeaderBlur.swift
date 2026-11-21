@@ -23,7 +23,7 @@ import SwiftUI
 struct ProgressiveHeaderBlur: View {
     var height: CGFloat
     /// Which edge the blur is strongest at. `.bottom` mirrors it for the
-    /// floating tab bar (macOS 26+, see `SettingsWindowView.contentPage`).
+    /// floating tab bar (see `SettingsWindowView.contentPage`).
     var edge: VerticalEdge = .top
 
     /// Weakest to strongest. The weakest spans the whole zone (top fully

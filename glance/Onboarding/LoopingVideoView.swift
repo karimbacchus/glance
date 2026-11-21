@@ -73,7 +73,7 @@ final class LoopingVideoHostView: NSView {
         player = newPlayer
 
         endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
             object: item,
             queue: .main
         ) { [weak self] _ in

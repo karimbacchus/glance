@@ -6,7 +6,6 @@
 //  Solves the 2D similarity transform mapping 5 detected landmarks onto the standard ArcFace template, then warps.
 //
 
-import Vision
 import CoreGraphics
 
 struct AlignedFace {
@@ -24,7 +23,7 @@ nonisolated enum FaceAligner {
     static let outputSize = 112
 
     /// Standard ArcFace 112x112 template: left eye, right eye, nose, left mouth, right mouth. "Left"/"right" are
-    /// on-screen, not anatomical — see the ordering fix in `fivePoints(from:imageSize:)`.
+    /// on-screen, not anatomical — see the ordering fix in `fivePoints(from:)`.
     private static let referencePoints: [CGPoint] = [
         CGPoint(x: 38.2946, y: 51.6963),
         CGPoint(x: 73.5318, y: 51.5014),
@@ -36,16 +35,14 @@ nonisolated enum FaceAligner {
 
     /// Best-effort: 5-point landmarks, falling back to 2-point (eyes only), falling back to a padded crop.
     static func align(_ face: DetectedFace, from image: CGImage) -> AlignedFace? {
-        let imageSize = CGSize(width: image.width, height: image.height)
-
         if let landmarks = face.landmarks,
-           let points = fivePoints(from: landmarks, imageSize: imageSize),
+           let points = fivePoints(from: landmarks),
            let warped = warp(image, sourcePoints: points, destinationPoints: referencePoints) {
             return AlignedFace(image: warped, tier: .fivePoint)
         }
 
         if let landmarks = face.landmarks,
-           let eyes = twoPoints(from: landmarks, imageSize: imageSize),
+           let eyes = twoPoints(from: landmarks),
            let warped = warp(image, sourcePoints: eyes, destinationPoints: eyeReferencePoints) {
             return AlignedFace(image: warped, tier: .twoPoint)
         }
@@ -59,26 +56,26 @@ nonisolated enum FaceAligner {
     //
     // Point/centroid/eye-center/transform math lives in `LandmarkGeometry`, shared with the liveness analyzer.
 
-    private static func fivePoints(from landmarks: VNFaceLandmarks2D, imageSize: CGSize) -> [CGPoint]? {
-        guard let eyeA = LandmarkGeometry.eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye, imageSize: imageSize),
-              let eyeB = LandmarkGeometry.eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye, imageSize: imageSize),
-              let nose = landmarks.nose, let noseCenter = LandmarkGeometry.centroid(of: nose, imageSize: imageSize),
-              let outerLips = landmarks.outerLips else { return nil }
+    private static func fivePoints(from landmarks: FaceLandmarks) -> [CGPoint]? {
+        guard let eyeA = LandmarkGeometry.eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye),
+              let eyeB = LandmarkGeometry.eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye),
+              let noseCenter = LandmarkGeometry.centroid(of: landmarks.nose),
+              !landmarks.outerLips.isEmpty else { return nil }
 
         // Vision's leftEye/rightEye are anatomical, not on-screen — sort by x instead of trusting either label.
         let imageLeftEye = eyeA.x <= eyeB.x ? eyeA : eyeB
         let imageRightEye = eyeA.x <= eyeB.x ? eyeB : eyeA
 
-        let lipPoints = LandmarkGeometry.imagePoints(of: outerLips, imageSize: imageSize)
+        let lipPoints = landmarks.outerLips
         guard let imageLeftMouth = lipPoints.min(by: { $0.x < $1.x }),
               let imageRightMouth = lipPoints.max(by: { $0.x < $1.x }) else { return nil }
 
         return [imageLeftEye, imageRightEye, noseCenter, imageLeftMouth, imageRightMouth]
     }
 
-    private static func twoPoints(from landmarks: VNFaceLandmarks2D, imageSize: CGSize) -> [CGPoint]? {
-        guard let eyeA = LandmarkGeometry.eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye, imageSize: imageSize),
-              let eyeB = LandmarkGeometry.eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye, imageSize: imageSize) else { return nil }
+    private static func twoPoints(from landmarks: FaceLandmarks) -> [CGPoint]? {
+        guard let eyeA = LandmarkGeometry.eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye),
+              let eyeB = LandmarkGeometry.eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye) else { return nil }
         return eyeA.x <= eyeB.x ? [eyeA, eyeB] : [eyeB, eyeA]
     }
 

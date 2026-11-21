@@ -99,27 +99,12 @@ struct SettingsTabBar: View {
     }
 }
 
-/// The bar's own surface. macOS 26+: a single Liquid Glass capsule — the floating tab bar is the archetypal glass
-/// element, and the system draws its edge highlight and adapts it to whatever scrolls beneath. Deliberately not
-/// `.interactive()`: each tab is its own control, so the whole bar shouldn't react to a press on one of them. Earlier
-/// systems keep the original material + tint + hairline.
+/// The bar's own surface: a single Liquid Glass capsule — the floating tab bar is the archetypal glass element, and
+/// the system draws its edge highlight and adapts it to whatever scrolls beneath. Deliberately not `.interactive()`:
+/// each tab is its own control, so the whole bar shouldn't react to a press on one of them.
 private struct TabBarChrome: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular, in: Capsule())
-        } else {
-            content
-                .background {
-                    Capsule()
-                        .fill(.regularMaterial)
-                    Capsule()
-                        .fill(SettingsMetrics.tabBarTint)
-                }
-                .overlay(
-                    Capsule()
-                        .strokeBorder(SettingsMetrics.tabBarBorder, lineWidth: 1)
-                )
-        }
+        content.glassEffect(.regular, in: Capsule())
     }
 }
 

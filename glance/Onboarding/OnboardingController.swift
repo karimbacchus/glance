@@ -389,7 +389,7 @@ final class OnboardingController {
     private(set) var excessiveTurn: ExcessiveTurn?
     private(set) var enrollmentComplete = false
 
-    /// Scores enrollment frames for a smudged lens (macOS 26+). A smudge here is worse than at unlock time: it's baked
+    /// Scores enrollment frames for a smudged lens. A smudge here is worse than at unlock time: it's baked
     /// into the stored template for as long as this identity stays enrolled.
     private let lensMonitor = LensSmudgeMonitor()
     /// Set once the smudge hint has held the first capture for `lensSmudgeHintMaxDuration`; it isn't shown again in
@@ -832,7 +832,7 @@ final class OnboardingController {
         let image = cameraFrame.image
         let outcome = await Task.detached(priority: .userInitiated) {
             do {
-                let faces = try FaceDetector.detectFaces(in: image)
+                let faces = try await FaceDetector.detectFaces(in: image)
                 guard let face = FaceRecognitionPipeline.largestFace(in: faces) else {
                     return EnrollFrameOutcome.noFace
                 }

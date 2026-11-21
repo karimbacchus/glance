@@ -2,10 +2,10 @@
 //  LensSmudgeDetector.swift
 //  glance
 //
-//  Advisory check for a smudged camera lens, using Vision's `DetectLensSmudgeRequest` (macOS 26+). A greasy lens —
+//  Advisory check for a smudged camera lens, using Vision's `DetectLensSmudgeRequest`. A greasy lens —
 //  on a MacBook, classically from the lid closing onto the keyboard — softens every frame, which lowers both capture
 //  quality during enrollment and match similarity at unlock. This only ever produces a *hint*; it never gates an
-//  unlock or blocks enrollment for longer than a short, bounded pause. On macOS 15 everything here is a no-op.
+//  unlock or blocks enrollment for longer than a short, bounded pause.
 //
 //  The model also scores ordinary blur highly (measured: a plain Gaussian blur of a sharp photo scores ~0.5–1.0, the
 //  sharp original ~0.00), so a single soft frame from motion or refocusing means nothing. `LensSmudgeAssessment`
@@ -17,18 +17,11 @@ import Observation
 import Vision
 
 nonisolated enum LensSmudgeDetector {
-    /// Whether this macOS ships the lens-smudge model at all.
-    static var isSupported: Bool {
-        if #available(macOS 26.0, *) { return true }
-        return false
-    }
-
-    /// 0...1 likelihood the lens was smudged when `image` was captured; `nil` if unsupported or the request failed.
+    /// 0...1 likelihood the lens was smudged when `image` was captured; `nil` if the request failed.
     /// `@concurrent` so the Vision work never lands on the caller's actor — callers are main-actor UI. The first call
     /// in a process also loads the model (~0.7s measured), which must not stall the main thread.
     @concurrent
     static func smudgeConfidence(in image: CGImage) async -> Float? {
-        guard #available(macOS 26.0, *) else { return nil }
         return try? await DetectLensSmudgeRequest().perform(on: image).confidence
     }
 }
@@ -79,7 +72,7 @@ final class LensSmudgeMonitor {
     /// Idempotent. Spacing samples out (rather than scoring every frame) is what lets the assessment tell a persistent
     /// smudge apart from a moment of motion blur, and keeps the cost negligible (~5ms per sample once warm).
     func start(sampling camera: CameraManager, every interval: Duration = .milliseconds(750)) {
-        guard LensSmudgeDetector.isSupported, samplingTask == nil else { return }
+        guard samplingTask == nil else { return }
         samplingTask = Task { [weak self, weak camera] in
             var lastScoredFrameID: UInt64?
             while !Task.isCancelled {

@@ -88,7 +88,7 @@ def locate_or_download_onnx(variant: str, explicit_path: str | None) -> Path:
     return matches[0]
 
 
-def convert_to_coreml(onnx_path: Path, output_path: Path) -> None:
+def convert_to_coreml(onnx_path: Path, output_path: Path, variant: str = "w600k_mbf"):
     import numpy as np
     import onnx
     import coremltools as ct
@@ -125,7 +125,7 @@ def convert_to_coreml(onnx_path: Path, output_path: Path) -> None:
         compute_units=ct.ComputeUnit.ALL,
     )
 
-    mlmodel.short_description = "ArcFace (w600k_mbf) face embedding — 512-d, on-device"
+    mlmodel.short_description = f"ArcFace ({variant}) face embedding — 512-d, on-device"
     mlmodel.input_description["input_image"] = "112x112 RGB aligned face crop"
     mlmodel.output_description["embedding"] = "512-float embedding (not L2-normalized)"
 
@@ -183,7 +183,7 @@ def main() -> None:
     args = parser.parse_args()
 
     onnx_path = locate_or_download_onnx(args.variant, args.onnx_path)
-    mlmodel, onnx_path = convert_to_coreml(onnx_path, Path(args.output))
+    mlmodel, onnx_path = convert_to_coreml(onnx_path, Path(args.output), args.variant)
 
     if not args.skip_verify:
         verify_parity(mlmodel, onnx_path)

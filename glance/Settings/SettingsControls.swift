@@ -20,19 +20,10 @@ enum SettingsTabIcon {
 }
 
 extension View {
-    /// Chrome for the header's floating controls (session pill, refresh button). macOS 26+ gets interactive Liquid
-    /// Glass — these controls float above scrolling content, which is exactly the layer glass is meant for — while
-    /// macOS 15 keeps the original translucent fill and hairline.
-    @ViewBuilder
+    /// Chrome for the header's floating controls (session pill, refresh button): interactive Liquid Glass — these
+    /// controls float above scrolling content, which is exactly the layer glass is meant for.
     func settingsHeaderChrome<S: InsettableShape>(in shape: S) -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: shape)
-        } else {
-            background(shape.fill(SettingsMetrics.rowColor))
-                .overlay(
-                    shape.strokeBorder(SettingsMetrics.rowBorder, lineWidth: SettingsMetrics.rowBorderWidth)
-                )
-        }
+        glassEffect(.regular.interactive(), in: shape)
     }
 }
 

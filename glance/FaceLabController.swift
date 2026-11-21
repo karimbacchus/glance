@@ -32,7 +32,7 @@ struct CalibrationSample: Identifiable {
 @MainActor
 final class FaceLabController {
     let camera = CameraManager()
-    /// Live lens-smudge score (macOS 26+) — the raw number behind the hint Camera settings and enrollment show, for
+    /// Live lens-smudge score — the raw number behind the hint Camera settings and enrollment show, for
     /// checking `LensSmudgeAssessment`'s thresholds against this Mac's real camera.
     let lensMonitor = LensSmudgeMonitor()
     let store = FaceEnrollmentStore.shared
@@ -160,7 +160,7 @@ final class FaceLabController {
         let pipeline = self.pipeline
         do {
             let (result, livenessFrame) = try await Task.detached(priority: .userInitiated) {
-                let result = try pipeline.recognize(in: cameraFrame.image)
+                let result = try await pipeline.recognize(in: cameraFrame.image)
                 let faceCrop = CameraManager.renderCrop(from: cameraFrame, imageRect: result.face.boundingBox)
                 return (result, LivenessFeatureExtractor.extract(from: result, frame: cameraFrame.image, faceCrop: faceCrop))
             }.value

@@ -11,7 +11,7 @@ struct CameraSettingsPage: View {
     @Bindable private var settings = GlanceSettings.shared
     @State private var previewCamera = CameraManager()
     @State private var isPreviewShown = false
-    /// Scores the live preview for a smudged lens (macOS 26+) while it's shown.
+    /// Scores the live preview for a smudged lens while it's shown.
     @State private var lensMonitor = LensSmudgeMonitor()
 
     @State private var isUnlocking = false

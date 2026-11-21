@@ -33,7 +33,7 @@ struct SessionLockButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        // Liquid Glass on macOS 26+, the original translucent pill before that.
+        // Liquid Glass pill.
         .settingsHeaderChrome(in: Capsule())
         .help(pocController.isSessionUnlocked ? "Lock the session" : "Unlock the session with Touch ID")
         // Only disabled mid-authentication — a tap then would double up the

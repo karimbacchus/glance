@@ -7,11 +7,12 @@
 
 import Vision
 import CoreGraphics
+import Foundation
 
-struct DetectedFace {
+nonisolated struct DetectedFace: Sendable {
     /// Pixel-space bounding box, top-left origin — ready to crop with.
     let boundingBox: CGRect
-    /// Vision's original normalized box — kept as-is since it's the exact format `layerRectConverted(fromMetadataOutputRect:)` expects.
+    /// Vision's original normalized box (bottom-left origin) — kept as-is since it's the exact format `layerRectConverted(fromMetadataOutputRect:)` expects.
     let normalizedBoundingBox: CGRect
     /// 0...1 confidence from Vision that this is a face, roughly indicating
     /// image quality/pose suitability for recognition. `nil` if the quality
@@ -22,67 +23,74 @@ struct DetectedFace {
     let yaw: Float?
     let roll: Float?
     let pitch: Float?
-    /// Facial landmarks (eyes, nose, mouth, etc.), when available. Feeds
-    /// `FaceAligner` for canonical 112x112 alignment ahead of ArcFace.
-    nonisolated let landmarks: VNFaceLandmarks2D?
-    /// Needed by `landmarks.pointsInImage(_:)` to convert normalized landmark points into `boundingBox`'s pixel space.
+    /// Facial landmarks (eyes, nose, mouth, etc.) already in `imageSize` pixel space, top-left origin, when available.
+    /// Feeds `FaceAligner` for canonical 112x112 alignment ahead of ArcFace.
+    let landmarks: FaceLandmarks?
     let imageSize: CGSize
 }
 
-/// Pure, synchronous, CPU-bound work — `nonisolated` so it can run on a
-/// background task despite the project's default main-actor isolation.
+/// CPU-bound Vision work — `nonisolated` so it can run on a background task despite the project's default
+/// main-actor isolation; `detectFaces` is additionally `@concurrent` so it never lands on a caller's actor.
 nonisolated enum FaceDetector {
     /// Every request revision is pinned rather than left at Vision's default. Enrolled ArcFace templates are only
     /// comparable to live embeddings produced through the *same* landmark → alignment path, and the liveness geometry
-    /// thresholds and capture-quality bands (`FaceSample.QualityTier`, onboarding's `qualityFloor`) were tuned against
-    /// these exact models. An unpinned request follows whatever the SDK the app is *built* with considers the default, so
-    /// a toolchain bump alone could silently shift alignment under every existing enrollment.
+    /// thresholds and capture-quality bands (`FaceSample.QualityTier`, onboarding's `qualityFloor`) are tuned against
+    /// these exact models. An unpinned request follows whatever the OS considers the default, so a future OS shipping
+    /// a newer face or landmark model must never silently shift alignment under every existing enrollment. Moving to
+    /// a newer revision is a deliberate migration: validate match scores and liveness cues in Face Lab, then bump
+    /// `ArcFaceEmbedder.modelIdentifier` so existing enrollments are flagged for recapture.
     ///
-    /// macOS 27 ships revision 4 of face rectangles and landmarks, reachable only through the Swift Vision API
-    /// (`DetectFaceRectanglesRequest`/`DetectFaceLandmarksRequest`, which already default to revision 4 there). Adopting
-    /// it is a deliberate migration — validate match scores and liveness cues in Face Lab, then bump
-    /// `ArcFaceEmbedder.modelIdentifier` so existing enrollments are flagged for recapture — not a drive-by default change.
-    static let rectanglesRevision = VNDetectFaceRectanglesRequestRevision3
-    static let landmarksRevision = VNDetectFaceLandmarksRequestRevision3
-    static let captureQualityRevision = VNDetectFaceCaptureQualityRequestRevision3
+    /// Rectangles and landmarks use revision 4 and capture quality revision 3 (its latest). Revision 4 is reachable
+    /// only through the Swift Vision API (`DetectFaceRectanglesRequest` & co.), not the legacy `VN*` classes.
+    static let rectanglesRevision = DetectFaceRectanglesRequest.Revision.revision4
+    static let landmarksRevision = DetectFaceLandmarksRequest.Revision.revision4
+    static let captureQualityRevision = DetectFaceCaptureQualityRequest.Revision.revision3
 
     /// Runs face-rectangle, capture-quality, and landmarks detection on a single frame.
-    static func detectFaces(in image: CGImage) throws -> [DetectedFace] {
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    @concurrent
+    static func detectFaces(in image: CGImage) async throws -> [DetectedFace] {
+        let handler = ImageRequestHandler(image)
 
-        let rectanglesRequest = VNDetectFaceRectanglesRequest()
-        rectanglesRequest.revision = rectanglesRevision
-        try handler.perform([rectanglesRequest])
-        let faceObservations = rectanglesRequest.results ?? []
+        let faceObservations = try await handler.perform(DetectFaceRectanglesRequest(rectanglesRevision))
         guard !faceObservations.isEmpty else { return [] }
 
         // Chained to the rectangles results (via `inputFaceObservations`) rather than run independently, so results
         // correspond 1:1 in order — avoids the fragility of matching back via boundingBox float equality.
-        let qualityRequest = VNDetectFaceCaptureQualityRequest()
-        qualityRequest.revision = captureQualityRevision
-        let landmarksRequest = VNDetectFaceLandmarksRequest()
-        landmarksRequest.revision = landmarksRevision
+        var qualityRequest = DetectFaceCaptureQualityRequest(captureQualityRevision)
         qualityRequest.inputFaceObservations = faceObservations
+        var landmarksRequest = DetectFaceLandmarksRequest(landmarksRevision)
         landmarksRequest.inputFaceObservations = faceObservations
-        try handler.perform([qualityRequest, landmarksRequest])
+        let (qualityResults, landmarkResults) = try await handler.perform(qualityRequest, landmarksRequest)
 
-        let qualityResults = qualityRequest.results ?? []
-        let landmarkResults = landmarksRequest.results ?? []
         let imageSize = CGSize(width: image.width, height: image.height)
 
         return faceObservations.enumerated().map { index, observation in
-            let pixelRect = convertToImageSpace(observation.boundingBox, imageSize: imageSize)
+            let normalizedRect = observation.boundingBox.cgRect
             return DetectedFace(
-                boundingBox: pixelRect,
-                normalizedBoundingBox: observation.boundingBox,
-                quality: qualityResults.indices.contains(index) ? qualityResults[index].faceCaptureQuality : nil,
-                yaw: observation.yaw?.floatValue,
-                roll: observation.roll?.floatValue,
-                pitch: observation.pitch?.floatValue,
-                landmarks: landmarkResults.indices.contains(index) ? landmarkResults[index].landmarks : nil,
+                boundingBox: convertToImageSpace(normalizedRect, imageSize: imageSize),
+                normalizedBoundingBox: normalizedRect,
+                quality: qualityResults.indices.contains(index) ? qualityResults[index].captureQuality?.score : nil,
+                yaw: radians(observation.yaw).map { -$0 },
+                roll: radians(observation.roll).map { -$0 },
+                pitch: radians(observation.pitch),
+                landmarks: landmarkResults.indices.contains(index)
+                    ? landmarkResults[index].landmarks.map { FaceLandmarks($0, imageSize: imageSize) }
+                    : nil,
                 imageSize: imageSize
             )
         }
+    }
+
+    /// Yaw and roll are negated to keep the revision-3 sign convention the rest of the app (onboarding's guided-pose
+    /// yaw, in particular) was written against: measured on live frames, revision 4's yaw and roll come out with the
+    /// opposite sign to revision 3's — yaw against the nose-offset-from-eye-midline, roll against the eye-line angle
+    /// (correlations flip from -0.75/+0.52 to +0.83/-0.45). Pitch agrees in sign and is passed through.
+    ///
+    /// The Swift API exposes head angles as `Measurement<UnitAngle>`; the rest of the app works in radians. Non-finite
+    /// values (no estimate) become `nil`, matching the optional the legacy API returned.
+    private static func radians(_ angle: Measurement<UnitAngle>) -> Float? {
+        let value = angle.converted(to: .radians).value
+        return value.isFinite ? Float(value) : nil
     }
 
     /// Vision's normalized rect has origin at bottom-left; `CGImage.cropping`
@@ -104,5 +112,22 @@ nonisolated enum FaceDetector {
         let padded = face.boundingBox.insetBy(dx: -padX, dy: -padY).intersection(imageBounds)
         guard !padded.isEmpty else { return nil }
         return image.cropping(to: padded)
+    }
+}
+
+extension FaceLandmarks {
+    /// Vision's region points → image-space pixels, top-left origin, y down.
+    nonisolated init(_ landmarks: FaceObservation.Landmarks2D, imageSize: CGSize) {
+        func points(_ region: FaceObservation.Landmarks2D.Region) -> [CGPoint] {
+            region.pointsInImageCoordinates(imageSize, origin: .upperLeft)
+        }
+        self.init(
+            leftEye: points(landmarks.leftEye), rightEye: points(landmarks.rightEye),
+            leftPupil: points(landmarks.leftPupil), rightPupil: points(landmarks.rightPupil),
+            leftEyebrow: points(landmarks.leftEyebrow), rightEyebrow: points(landmarks.rightEyebrow),
+            nose: points(landmarks.nose), noseCrest: points(landmarks.noseCrest),
+            outerLips: points(landmarks.outerLips), innerLips: points(landmarks.innerLips),
+            faceContour: points(landmarks.faceContour), medianLine: points(landmarks.medianLine)
+        )
     }
 }

@@ -36,7 +36,7 @@ nonisolated enum DeviceBezelDetector {
         return request
     }
 
-    /// Synchronous and CPU-bound — call from a background task, same as `FaceDetector.detectFaces`.
+    /// Synchronous and CPU-bound — call from a background task, same as the legacy-API face work.
     static func detect(in image: CGImage, faceBoundingBox: CGRect) -> DeviceBezelObservation {
         let request = makeRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])

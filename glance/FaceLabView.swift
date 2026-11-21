@@ -97,11 +97,7 @@ struct FaceLabView: View {
     /// Raw `DetectLensSmudgeRequest` score plus the debounced verdict the user-facing hints act on.
     @ViewBuilder
     private var lensSmudgeStatus: some View {
-        if !LensSmudgeDetector.isSupported {
-            Text("Lens smudge: needs macOS 26")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } else if let score = controller.lensMonitor.latestScore {
+        if let score = controller.lensMonitor.latestScore {
             Text("Lens smudge: \(score, format: .number.precision(.fractionLength(2)))\(controller.lensMonitor.isSmudged ? " — smudged" : "")")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(controller.lensMonitor.isSmudged ? .orange : .secondary)

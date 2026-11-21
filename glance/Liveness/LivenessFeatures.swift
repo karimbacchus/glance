@@ -6,8 +6,8 @@
 //  Vision-free `LivenessFrame` — keeps the decision logic compilable standalone.
 //
 
-import Vision
 import CoreGraphics
+import Foundation
 
 nonisolated enum LivenessFeatureExtractor {
     /// Never fails — a face with no landmarks still yields a frame; cues that need landmarks abstain.
@@ -33,18 +33,17 @@ nonisolated enum LivenessFeatureExtractor {
             )
         }
 
-        let imageSize = face.imageSize
-        let points = LandmarkGeometry.allPoints(from: landmarks, imageSize: imageSize)
-        let interocular = LandmarkGeometry.interocularDistance(from: landmarks, imageSize: imageSize)
-        let leftEAR = landmarks.leftEye.flatMap { LandmarkGeometry.eyeAspectRatio(of: $0, imageSize: imageSize) }
-        let rightEAR = landmarks.rightEye.flatMap { LandmarkGeometry.eyeAspectRatio(of: $0, imageSize: imageSize) }
+        let points = LandmarkGeometry.allPoints(from: landmarks)
+        let interocular = LandmarkGeometry.interocularDistance(from: landmarks)
+        let leftEAR = LandmarkGeometry.eyeAspectRatio(of: landmarks.leftEye)
+        let rightEAR = LandmarkGeometry.eyeAspectRatio(of: landmarks.rightEye)
 
-        let eyeLeft = LandmarkGeometry.eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye, imageSize: imageSize)
-        let eyeRight = LandmarkGeometry.eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye, imageSize: imageSize)
+        let eyeLeft = LandmarkGeometry.eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye)
+        let eyeRight = LandmarkGeometry.eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye)
 
         var noseOffsetRatio: CGFloat?
         if let interocular, interocular > 0, let eyeLeft, let eyeRight,
-           let nose = landmarks.nose, let noseCenter = LandmarkGeometry.centroid(of: nose, imageSize: imageSize) {
+           let noseCenter = LandmarkGeometry.centroid(of: landmarks.nose) {
             let eyeMidX = (eyeLeft.x + eyeRight.x) / 2
             noseOffsetRatio = (noseCenter.x - eyeMidX) / interocular
         }

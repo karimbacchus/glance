@@ -35,22 +35,12 @@ enum SettingsMetrics {
 
     // MARK: - Tab bar
     //
-    // Floating pill pinned to the bottom edge, above the scrolling page. Same
-    // `.sidebar` material as the window, blended within-window so it blurs
-    // the rows passing beneath it, plus `tabBarTint` to lift it a touch.
+    // Floating Liquid Glass pill pinned to the bottom edge, above the scrolling page.
 
     static let tabBarHeight: CGFloat = 54
     static let tabBarBottomInset: CGFloat = 14
     /// Gap between the bar's edge and the first/last item's own padding.
     static let tabBarHorizontalPadding: CGFloat = 6
-    static let tabBarTint = adaptiveColor(
-        dark: NSColor(white: 1, alpha: 0.15),
-        light: NSColor(white: 1, alpha: 0.5)
-    )
-    static let tabBarBorder = adaptiveColor(
-        dark: NSColor(white: 1, alpha: 0.16),
-        light: NSColor(white: 0, alpha: 0.08)
-    )
     static let tabItemHeight: CGFloat = 42
     static let tabItemHorizontalPadding: CGFloat = 11
     static let selectedTabItemHorizontalPadding: CGFloat = 14
@@ -60,8 +50,7 @@ enum SettingsMetrics {
         dark: NSColor(white: 1, alpha: 0.1),
         light: NSColor(white: 1, alpha: 0.7)
     )
-    /// Same treatment as `tabBarBorder`, one step subtler — the inner pill
-    /// reads as sitting on the outer one rather than a separate outline.
+    /// A subtle outline so the inner pill reads as sitting on the bar rather than a separate shape.
     static let selectedPillBorder = adaptiveColor(
         dark: NSColor(white: 1, alpha: 0.12),
         light: NSColor(white: 0, alpha: 0.06)
@@ -76,23 +65,20 @@ enum SettingsMetrics {
     /// Extra scroll room below a page's last row so it can clear the tab bar.
     static let pageBottomInset: CGFloat = tabBarHeight + tabBarBottomInset + 16
     /// Height of the bottom progressive blur behind the floating tab bar
-    /// (macOS 26+, where the bar is Liquid Glass) — same extra fade room as
+    /// (the bar is Liquid Glass) — same extra fade room as
     /// `headerBlurHeight` gets past the header.
     static let tabBarBlurHeight: CGFloat = tabBarHeight + tabBarBottomInset + 28
 
     /// The header's glass controls merging/splitting as Camera's refresh
-    /// button comes and goes (macOS 26+).
+    /// button comes and goes.
     static let headerMorphAnimation = Animation.smooth(duration: 0.35)
 
     /// Foreground for labels on the floating chrome (header controls, tab
-    /// bar). On macOS 26 that chrome is Liquid Glass, which adapts its own
+    /// bar). That chrome is Liquid Glass, which adapts its own
     /// light/dark rendering to whatever scrolls beneath it; `.primary`
     /// follows that adaptation, where a fixed color could lose contrast.
     static var chromeForeground: AnyShapeStyle {
-        if #available(macOS 26.0, *) {
-            return AnyShapeStyle(.primary)
-        }
-        return AnyShapeStyle(textPrimary)
+        AnyShapeStyle(.primary)
     }
 
     /// Light-mode values match the exact resolved alpha AppKit's own

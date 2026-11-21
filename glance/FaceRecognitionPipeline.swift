@@ -62,10 +62,11 @@ final class FaceRecognitionPipeline {
     /// Deliberately touches nothing — constructing a pipeline must stay cheap enough to do on the main actor.
     init() {}
 
-    /// `nonisolated` so callers can run detect/align/embed from a background task instead of blocking the main actor.
+    /// `@concurrent` (detection is async) so detect/align/embed never run on the caller's actor — callers can be main-actor UI.
     /// - Parameter previousBoundingBox: previous frame's selected box, if any — lets a continuous scanner keep selection "stuck" to the same person instead of re-picking every frame.
-    nonisolated func recognize(in frame: CGImage, preferNear previousBoundingBox: CGRect? = nil) throws -> FaceRecognitionResult {
-        let faces = try FaceDetector.detectFaces(in: frame)
+    @concurrent
+    func recognize(in frame: CGImage, preferNear previousBoundingBox: CGRect? = nil) async throws -> FaceRecognitionResult {
+        let faces = try await FaceDetector.detectFaces(in: frame)
         guard let face = Self.selectDominantFace(in: faces, preferNear: previousBoundingBox) else {
             throw FaceRecognitionPipelineError.noFaceDetected
         }

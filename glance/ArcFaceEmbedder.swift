@@ -34,7 +34,11 @@ enum ArcFaceEmbedderError: LocalizedError {
 
 nonisolated final class ArcFaceEmbedder: FaceEmbedder, @unchecked Sendable {
     nonisolated let name = "ArcFace (w600k_mbf)"
-    nonisolated let modelIdentifier = "arcface-w600k_mbf-v1"
+    /// Names the whole embedding space, not just the weights: enrolled samples are only comparable to live ones
+    /// produced through the same landmark → alignment path, so moving face landmarks to Vision revision 4 (which
+    /// shifts the five alignment points by ~4–5px in the 112x112 crop) is a new identifier too. Changing it flags
+    /// existing enrollments as stale ("recapture") instead of letting them quietly fail to match.
+    nonisolated let modelIdentifier = "arcface-w600k_mbf-vision4-v1"
     nonisolated let embeddingDimension = 512
     nonisolated let requiresAlignment = true
 

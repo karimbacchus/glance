@@ -7,6 +7,7 @@
 //  standalone script against the real files:
 //
 //      swiftc -O -o /tmp/liveness_selftest \
+//        glance/Liveness/FaceLandmarks.swift \
 //        glance/Liveness/LandmarkGeometry.swift \
 //        glance/Liveness/GeometryLiveness.swift \
 //        glance/Liveness/GlareCue.swift \

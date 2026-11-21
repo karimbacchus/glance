@@ -35,7 +35,7 @@ struct SettingsWindowView: View {
     let environment: AppEnvironment
     @State private var selection: SettingsTab = .general
     @State private var headerTrailingAction: HeaderAction?
-    /// Pairs the header's glass controls so they morph into each other (macOS 26+) — see `header`.
+    /// Pairs the header's glass controls so they morph into each other — see `header`.
     @Namespace private var headerGlassNamespace
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -91,7 +91,7 @@ struct SettingsWindowView: View {
     /// The header and tab bar float over the scroll content as overlays so
     /// scrolled rows pass underneath them rather than being pushed aside.
     ///
-    /// macOS 26+ deliberately keeps this overlay layout and the custom
+    /// This deliberately keeps this overlay layout and the custom
     /// progressive blur rather than switching to `safeAreaBar` with the
     /// system's `scrollEdgeEffectStyle`: side-by-side on macOS 27, `.soft`
     /// left rows crisp right beside the traffic lights and `.hard` turned the
@@ -119,13 +119,11 @@ struct SettingsWindowView: View {
         }
         .overlay(alignment: .bottom) {
             ZStack(alignment: .bottom) {
-                if #available(macOS 26.0, *) {
-                    // Glass is far clearer than the frosted material the bar
-                    // used to be, so busy rows (e.g. the animation tiles)
-                    // showed straight through its icons. The same softening
-                    // the header gets, mirrored, restores legibility.
-                    ProgressiveHeaderBlur(height: SettingsMetrics.tabBarBlurHeight, edge: .bottom)
-                }
+                // Glass is far clearer than a frosted material, so busy rows
+                // (e.g. the animation tiles) would show straight through the
+                // bar's icons. The same softening the header gets, mirrored,
+                // restores legibility.
+                ProgressiveHeaderBlur(height: SettingsMetrics.tabBarBlurHeight, edge: .bottom)
                 SettingsTabBar(
                     selection: $selection,
                     isDebugSectionRevealed: environment.isDebugSectionRevealed
@@ -136,7 +134,7 @@ struct SettingsWindowView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onPreferenceChange(HeaderTrailingActionKey.self) { action in
             // Animated so Camera's refresh button eases in and out — and on
-            // macOS 26+ its glass grows out of, and folds back into, the
+            // its glass grows out of, and folds back into, the
             // session pill beside it (see `header`).
             withAnimation(SettingsMetrics.headerMorphAnimation) { headerTrailingAction = action }
         }
@@ -146,35 +144,21 @@ struct SettingsWindowView: View {
     /// there by AppKit (see WindowConfiguringView). No background of its
     /// own; `ProgressiveHeaderBlur` sits behind it in `contentPage`.
     ///
-    /// macOS 26+: both controls share one `GlassEffectContainer`, so they
+    /// Both controls share one `GlassEffectContainer`, so they
     /// render as a single sheet of Liquid Glass that can merge and morph
     /// rather than as two unrelated blurs.
     private var header: some View {
-        Group {
-            if #available(macOS 26.0, *) {
-                GlassEffectContainer(spacing: 8) {
-                    HStack(spacing: 8) {
-                        Spacer()
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                Spacer()
 
-                        if let headerTrailingAction {
-                            refreshButton(headerTrailingAction)
-                                .glassEffectID(HeaderGlassID.refresh, in: headerGlassNamespace)
-                        }
-
-                        SessionLockButton(pocController: environment.pocController)
-                            .glassEffectID(HeaderGlassID.session, in: headerGlassNamespace)
-                    }
+                if let headerTrailingAction {
+                    refreshButton(headerTrailingAction)
+                        .glassEffectID(HeaderGlassID.refresh, in: headerGlassNamespace)
                 }
-            } else {
-                HStack(spacing: 8) {
-                    Spacer()
 
-                    if let headerTrailingAction {
-                        refreshButton(headerTrailingAction)
-                    }
-
-                    SessionLockButton(pocController: environment.pocController)
-                }
+                SessionLockButton(pocController: environment.pocController)
+                    .glassEffectID(HeaderGlassID.session, in: headerGlassNamespace)
             }
         }
         .padding(.horizontal, SettingsMetrics.contentHorizontalPadding)
