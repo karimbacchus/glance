@@ -11,9 +11,10 @@ import SwiftUI
 enum NotchPanelStyle {
     /// Inverted top corners, flush with the screen's top edge — a MacBook notch.
     case notch
-    /// A capsule floating just below the top edge, docked over a hardware Dynamic Island (the hole-punch camera on
-    /// the PROLED XDR MacBook Pro). Like `.notch` it never travels — it sits on real hardware and grows out of it, the
-    /// way Face ID does on iPhone; like `.pill` its corners are uniform rather than flaring into the screen edge.
+    /// A capsule floating just below the top edge, resting on a hardware Dynamic Island (the hole-punch camera on the
+    /// PROLED XDR MacBook Pro). Like `.notch` it rests on real hardware; like `.pill` its corners are uniform rather
+    /// than flaring into the screen edge. A scan never grows over the island — macOS fills it with its own
+    /// camera-in-use activity whenever the camera runs — so minimal docks beside it and original hangs below it.
     case island
     /// Fully-rounded pill / floating rounded rectangle, detached from the edge — displays with no camera cutout at all.
     case pill

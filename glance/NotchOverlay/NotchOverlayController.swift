@@ -72,6 +72,11 @@ final class NotchOverlayController {
     /// so a settings change mid-attempt can't resize the panel or change how it resolves.
     private(set) var activeUnlockStyle: UnlockAnimationStyle = .original
 
+    /// Island style only: whether an expanded scan docks beside macOS's camera-in-use indicator (a real scan, which
+    /// always has the camera on) or beside the bare island (Settings' animation preview, camera off). See
+    /// `NotchGeometry.islandExpandedCenterOffset`.
+    private(set) var isBesideCameraIndicator = false
+
     /// What a hover-driven activation should do — set by `arm()` (persists
     /// across scan cycles) or by one-shot `present(onRetry:)` (single use).
     private var onActivate: (() -> Void)?
@@ -180,6 +185,8 @@ final class NotchOverlayController {
         scanTimeoutTask?.cancel()
         geometry = windowController.currentGeometry
         activeUnlockStyle = GlanceSettings.shared.effectiveUnlockAnimationStyle
+        // Only ever called once the coordinator's camera is running.
+        isBesideCameraIndicator = true
         content = .scan(.idle)
         phase = .scanning
         updateInteractivity()
@@ -223,6 +230,8 @@ final class NotchOverlayController {
         scanTimeoutTask?.cancel(); scanTimeoutTask = nil
         geometry = windowController.currentGeometry
         activeUnlockStyle = styleOverride ?? GlanceSettings.shared.effectiveUnlockAnimationStyle
+        // One-shot presentations (the animation preview) never run the camera.
+        isBesideCameraIndicator = false
         primeWindowIfNeeded { [weak self] in
             guard let self else { return }
             content = .scan(.idle)

@@ -4,7 +4,8 @@
 //
 //  Layout: [ lock ][ gap ][ video ]. For `.notch` the gap is the physical
 //  cutout (nothing may be drawn there); for `.pill` — and `.island`, whose
-//  minimal capsule hangs below the camera — it's just negative space.
+//  minimal capsule docks beside the camera rather than around it — it's just
+//  negative space.
 
 import SwiftUI
 

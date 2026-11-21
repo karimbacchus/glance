@@ -104,9 +104,11 @@ struct NotchOverlayView: View {
                 width: closedBodySize.width + NotchGeometry.minimalNotchFlankWidth * 2,
                 height: closedBodySize.height + NotchGeometry.minimalNotchHeightBump
             )
-        // The island's hangs below the island (see `NotchGeometry.expandedTopInset`), so there's no camera to
-        // flank — the same capsule as the pill.
-        case .island, .pill:
+        // Docked beside the island rather than over it (see `NotchGeometry.islandExpandedCenterOffset`): a compact
+        // capsule at the island's own height.
+        case .island:
+            return CGSize(width: NotchGeometry.islandMinimalWidth, height: closedBodySize.height)
+        case .pill:
             return CGSize(
                 width: NotchGeometry.minimalPillOpenWidth,
                 height: NotchGeometry.minimalPillOpenHeight
@@ -178,12 +180,13 @@ struct NotchOverlayView: View {
         case .notch:
             return 0
         case .island:
-            // At rest: level with the hardware. Expanded for a scan: dropped below the island's band, clear of the
-            // camera indicator macOS draws there (see `NotchGeometry.expandedTopInset`) — animating with the expansion,
-            // so the panel visibly drops out of the island and folds back into it. Onboarding stays docked: the camera
-            // is off for all but its enroll step, and it already keeps its content below the island.
-            return visualIsExpanded && onboardingController == nil
-                ? controller.geometry.expandedTopInset
+            // The original style's square hangs below the island while expanded, clear of the camera-in-use activity
+            // macOS fills the island's band with (see `NotchGeometry.islandBelowTopInset`) — dropping out of the
+            // island and folding back into it with the expansion. Everything else stays level with the hardware: the
+            // minimal capsule docks beside the island instead (see `horizontalOffset`), and onboarding keeps its own
+            // content clear of the camera.
+            return visualIsExpanded && onboardingController == nil && !isMinimalScan
+                ? controller.geometry.islandBelowTopInset
                 : controller.geometry.closedTopInset
         case .pill:
             guard visualIsPositioned else {
@@ -191,6 +194,18 @@ struct NotchOverlayView: View {
             }
             return NotchGeometry.pillTopGap
         }
+    }
+
+    /// Island style, minimal scans: the capsule slides out from under the island to its docked slot on the left,
+    /// clear of the camera indicator macOS shows in the island while the camera runs, and slides back under it on
+    /// collapse — animating with the expansion itself. The original square drops below instead (see
+    /// `verticalOffset`); onboarding stays centered on the island.
+    private var horizontalOffset: CGFloat {
+        guard style == .island, visualIsExpanded, isMinimalScan else { return 0 }
+        return controller.geometry.islandExpandedCenterOffset(
+            panelWidth: openBodySize.width,
+            besideCameraIndicator: controller.isBesideCameraIndicator
+        )
     }
 
     /// So it resolves into focus as it slides down, rather than snapping in.
@@ -290,24 +305,38 @@ struct NotchOverlayView: View {
     }
 
     // MARK: - Minimal style metrics, per silhouette
-    //
-    // The island's minimal capsule hangs below the island, clear of the camera, so it shares the pill's metrics.
 
     private var minimalEdgeInset: CGFloat {
+        switch style {
         // The notch's flare eats `topRadius` before any real black starts.
-        style == .notch ? NotchGeometry.minimalContentEdgeInset + topRadius : NotchGeometry.minimalContentEdgeInset
+        case .notch: return NotchGeometry.minimalContentEdgeInset + topRadius
+        case .island: return NotchGeometry.islandMinimalEdgeInset
+        case .pill: return NotchGeometry.minimalContentEdgeInset
+        }
     }
 
     private var minimalLockIconSize: CGFloat {
-        style == .notch ? NotchGeometry.minimalNotchLockIconSize : NotchGeometry.minimalLockIconSize
+        switch style {
+        case .notch: return NotchGeometry.minimalNotchLockIconSize
+        case .island: return NotchGeometry.islandMinimalLockIconSize
+        case .pill: return NotchGeometry.minimalLockIconSize
+        }
     }
 
     private var minimalMediaWidth: CGFloat {
-        style == .notch ? NotchGeometry.minimalNotchMediaWidth : NotchGeometry.minimalMediaWidth
+        switch style {
+        case .notch: return NotchGeometry.minimalNotchMediaWidth
+        case .island: return NotchGeometry.islandMinimalMediaWidth
+        case .pill: return NotchGeometry.minimalMediaWidth
+        }
     }
 
     private var minimalMediaVerticalInset: CGFloat {
-        style == .notch ? NotchGeometry.minimalNotchMediaVerticalInset : NotchGeometry.minimalMediaVerticalInset
+        switch style {
+        case .notch: return NotchGeometry.minimalNotchMediaVerticalInset
+        case .island: return NotchGeometry.islandMinimalMediaVerticalInset
+        case .pill: return NotchGeometry.minimalMediaVerticalInset
+        }
     }
 
     var body: some View {
@@ -353,7 +382,7 @@ struct NotchOverlayView: View {
         .animation(expansionAnimation(entering: true), value: onboardingController?.panelSize)
         .blur(radius: panelBlur)
         // Applied after the shadow so both travel together, before `.onHover`.
-        .offset(y: verticalOffset)
+        .offset(x: horizontalOffset, y: verticalOffset)
         .animation(.easeOut(duration: 0.18), value: isHovering)
         .onHover { hovering in
             isHovering = hovering

@@ -23,17 +23,19 @@ struct NotchGeometry {
         }
     }
 
-    /// Where an expanded *scan* panel's top edge sits. Notch and pill grow downward from where they rest. The island
-    /// can't: a scan always has the camera on, and on these displays macOS then shows its camera-in-use indicator *in*
-    /// the island — the capsule widens (~142pt, with a green dot and camera glyph) and a live-preview bubble appears
-    /// beside it — drawn above every app window, by design, so no app can hide camera use. Growing over the island
-    /// would put Glance underneath that. So the expanded panel drops just below the island's band instead, where
-    /// nothing covers it, and folds back up into the island when it collapses.
-    var expandedTopInset: CGFloat {
-        switch style {
-        case .island: return closedTopInset + closedSize.height + Self.islandDropGap
-        case .notch, .pill: return closedTopInset
-        }
+    /// Island style, minimal scans: how far the capsule's center sits from the island's center (negative = left).
+    /// Docked on the left, `islandSiblingGap` clear of macOS's camera-in-use capsule — or, when the camera is off
+    /// (Settings' animation preview), of the bare island. Zero for every other style, which grow in place.
+    func islandExpandedCenterOffset(panelWidth: CGFloat, besideCameraIndicator: Bool) -> CGFloat {
+        guard style == .island else { return 0 }
+        let clearance = besideCameraIndicator ? Self.islandCameraIndicatorLeadingExtent : closedSize.width / 2
+        return -(clearance + Self.islandSiblingGap + panelWidth / 2)
+    }
+
+    /// Island style, original scans: the expanded square's top edge — just below the island's band, centered under
+    /// it, clear of the camera-in-use activity macOS fills the band with while the camera runs.
+    var islandBelowTopInset: CGFloat {
+        closedTopInset + closedSize.height + Self.islandDropGap
     }
 
     /// Fixed footprint of expanded scan-mode content in notch style. Sized for the
@@ -71,17 +73,39 @@ struct NotchGeometry {
     /// are several times wider than tall (~180–200 x 32–38pt), the island barely wider than tall (59 x 40pt).
     static let islandMaxAspectRatio: CGFloat = 3
 
-    /// Gap between the bottom of the island's band and an expanded scan panel hanging below it (see
-    /// `expandedTopInset`) — far enough that the two read as separate shapes, close enough to read as related.
-    static let islandDropGap: CGFloat = 5
+    // Clear of the camera indicator. A scan always has the camera on, and on these displays macOS then turns the
+    // island into its own camera-in-use activity: the capsule widens (green dot and camera glyph on its trailing side)
+    // and, depending on what else is running, a live-preview bubble or another activity (music, say) appears on the
+    // right. All of it is composited above every app window — deliberately, so no app can hide camera use — and none
+    // of it is exposed as a window or API an app could measure. So a scan never grows over the island:
+    //  - Minimal docks *beside* it, the way macOS slots its own activities — on the left, the side the system keeps
+    //    free. Across the states observed (camera alone; camera + music) the capsule's leading end sat 65.5–68.5pt
+    //    left of the island's center, while its trailing side moved around.
+    //  - Original's square is too big for the island's row, so it hangs just below the band instead.
 
-    /// Expanded scan-mode footprint, hanging below the island. Rounded square, like Face ID on iPhone. Minimal style
-    /// reuses the pill's capsule metrics: below the island there's no camera to flank.
+    /// How far left of the island's center macOS's camera-in-use capsule reaches (measured 65.5–68.5pt).
+    static let islandCameraIndicatorLeadingExtent: CGFloat = 69
+    /// Space between Glance's element and whatever it docks beside — the gap macOS itself leaves between its capsule
+    /// and the preview bubble (9pt).
+    static let islandSiblingGap: CGFloat = 9
+
+    /// Gap between the bottom of the island's band and the original style's square hanging below it — far enough
+    /// that the two read as separate shapes, close enough to read as related.
+    static let islandDropGap: CGFloat = 5
+    /// Original style, hanging below the island: a rounded square, like Face ID on iPhone.
     static let islandOpenSize = CGSize(width: 180, height: 180)
-    /// Large and continuous, like an expanded iPhone island; matches the pill's open radius closely.
     static let islandOpenCornerRadius: CGFloat = 46
-    /// Uniform scan-content inset — the camera is no longer inside the expanded panel.
+    /// Uniform scan-content inset — the camera is never inside the expanded panel.
     static let islandContentPadding: CGFloat = 32
+
+    /// Minimal style, docked beside the island: a compact capsule at the island's own height — lock glyph and
+    /// animation — mirroring the system's preview bubble on the other side. `islandMinimalEdgeInset + 2 *
+    /// islandMinimalMediaWidth` must fit inside `islandMinimalWidth` with room to spare.
+    static let islandMinimalWidth: CGFloat = 76
+    static let islandMinimalEdgeInset: CGFloat = 8
+    static let islandMinimalLockIconSize: CGFloat = 12
+    static let islandMinimalMediaWidth: CGFloat = 24
+    static let islandMinimalMediaVerticalInset: CGFloat = 6
 
     static let islandShadowPadding: CGFloat = 24
 
@@ -231,16 +255,16 @@ struct NotchGeometry {
                 height: contentHeight + notchShadowPadding + hoverBump
             )
         case .island:
-            let contentWidth = max(islandOpenSize.width, OnboardingMetrics.maxPanelWidth)
-            // Onboarding docks on the island; scan panels hang below its band — whichever reaches lower.
+            // Centered on the island, so each half must reach the farthest of onboarding's edge, the minimal capsule
+            // docked left of the camera indicator, and the original square hanging below the island.
+            let dockedReach = islandCameraIndicatorLeadingExtent + islandSiblingGap + islandMinimalWidth + hoverBump
+            let halfWidth = max(OnboardingMetrics.maxPanelWidth / 2, dockedReach, (islandOpenSize.width + hoverBump) / 2)
+                + islandShadowPadding
             let bottom = max(
                 geometry.closedTopInset + OnboardingMetrics.maxPanelHeight(for: .island),
-                geometry.expandedTopInset + islandOpenSize.height
+                geometry.islandBelowTopInset + islandOpenSize.height
             )
-            return CGSize(
-                width: contentWidth + islandShadowPadding * 2 + hoverBump,
-                height: bottom + islandShadowPadding + hoverBump
-            )
+            return CGSize(width: halfWidth * 2, height: bottom + islandShadowPadding + hoverBump)
         case .pill:
             let contentWidth = max(pillOpenSize.width, OnboardingMetrics.maxPanelWidth)
             let contentHeight = max(pillOpenSize.height, OnboardingMetrics.maxPanelHeight(for: .pill))
