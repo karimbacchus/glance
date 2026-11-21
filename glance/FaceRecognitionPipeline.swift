@@ -34,23 +34,33 @@ nonisolated enum FaceRecognitionPipelineError: LocalizedError {
 @Observable
 @MainActor
 final class FaceRecognitionPipeline {
-    nonisolated let embedder: FaceEmbedder
+    /// One embedder for the whole process. Every pipeline (unlock, each onboarding flow, Face Lab) used to load its own
+    /// copy of the ArcFace model, and the first copy loaded synchronously on the main thread during launch (~0.4s cold
+    /// on Apple silicon). `static let` gives thread-safe one-time initialization, so a main-actor read that
+    /// races `preloadSharedEmbedder()` simply waits for it. Sharing is safe: `ArcFaceEmbedder` holds no per-call mutable
+    /// state, `CVPixelBufferPool` is thread-safe, and Core ML serializes concurrent synchronous predictions on one model.
+    nonisolated private static let shared: (embedder: FaceEmbedder, fallbackReason: String?) = {
+        do {
+            return (try ArcFaceEmbedder(), nil)
+        } catch {
+            return (VisionFeaturePrintEmbedder(), error.localizedDescription)
+        }
+    }()
+
+    /// Loads the shared embedder off the main thread. Called at launch so the first lock-screen scan doesn't pay the
+    /// cold Core ML load, and so launch itself doesn't block on it. Safe to call any number of times.
+    nonisolated static func preloadSharedEmbedder() {
+        Task.detached(priority: .utility) { _ = shared }
+    }
+
+    nonisolated var embedder: FaceEmbedder { Self.shared.embedder }
 
     /// Set when ArcFace failed to load (see tools/convert_arcface.py) and the weaker Vision feature-print embedder is in use instead.
-    private(set) var usingFallbackEmbedder: Bool
-    private(set) var fallbackReason: String?
+    var usingFallbackEmbedder: Bool { Self.shared.fallbackReason != nil }
+    var fallbackReason: String? { Self.shared.fallbackReason }
 
-    init() {
-        do {
-            embedder = try ArcFaceEmbedder()
-            usingFallbackEmbedder = false
-            fallbackReason = nil
-        } catch {
-            embedder = VisionFeaturePrintEmbedder()
-            usingFallbackEmbedder = true
-            fallbackReason = error.localizedDescription
-        }
-    }
+    /// Deliberately touches nothing — constructing a pipeline must stay cheap enough to do on the main actor.
+    init() {}
 
     /// `nonisolated` so callers can run detect/align/embed from a background task instead of blocking the main actor.
     /// - Parameter previousBoundingBox: previous frame's selected box, if any — lets a continuous scanner keep selection "stuck" to the same person instead of re-picking every frame.

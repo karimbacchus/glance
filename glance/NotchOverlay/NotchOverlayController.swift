@@ -196,7 +196,7 @@ final class NotchOverlayController {
     /// On the very first show, `present()`/`presentOnboarding()` would otherwise render
     /// already-expanded with no prior "closed" frame for SwiftUI to animate away from.
     /// This runs one real closed-state show+render pass first, only on that first call.
-    private func primeWindowIfNeeded(_ completion: @escaping () -> Void) {
+    private func primeWindowIfNeeded(_ completion: @escaping @MainActor () -> Void) {
         guard !hasPrimedWindow else {
             completion()
             return
@@ -206,7 +206,7 @@ final class NotchOverlayController {
         phase = .closed
         windowController.show()
         windowController.displaySynchronously()
-        DispatchQueue.main.async(execute: completion)
+        DispatchQueue.main.async { completion() }
     }
 
     // MARK: - One-shot mode (onboarding, Face Lab preview)
@@ -294,12 +294,16 @@ final class NotchOverlayController {
         }
     }
 
-    /// Hover-driven activation: wakes from a closed/armed state, or retries from a held
+    /// Hover- or tap-driven activation: wakes from a closed/armed state, or retries from a held
     /// failure frame. No-op during scanning/success/collapsing.
-    func activate() {
+    ///
+    /// - Parameter deliberately: a tap (the PROLED MacBook Pro's display is a touchscreen, where
+    ///   there's no hover at all) rather than a pointer drifting over the panel. "Retry on hover"
+    ///   being off is about avoiding accidental retries, so it doesn't apply to a deliberate tap.
+    func activate(deliberately: Bool = false) {
         // Gated here rather than in `updateInteractivity()` so the cosmetic hover bump
         // stays unaffected — only the retry itself is removed.
-        guard GlanceSettings.shared.retryOnHover else { return }
+        guard deliberately || GlanceSettings.shared.retryOnHover else { return }
         switch phase {
         case .closed, .failure:
             guard let onActivate else {

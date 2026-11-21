@@ -11,6 +11,8 @@ struct CameraSettingsPage: View {
     @Bindable private var settings = GlanceSettings.shared
     @State private var previewCamera = CameraManager()
     @State private var isPreviewShown = false
+    /// Scores the live preview for a smudged lens (macOS 26+) while it's shown.
+    @State private var lensMonitor = LensSmudgeMonitor()
 
     @State private var isUnlocking = false
     @State private var sessionError: String?
@@ -87,8 +89,12 @@ struct CameraSettingsPage: View {
 
             if isPreviewShown, let error = previewCamera.errorMessage {
                 SettingsCaption(text: error)
+            } else if isPreviewShown, lensMonitor.isSmudged {
+                lensSmudgeHint
+                    .transition(.opacity)
             }
         }
+        .animation(SettingsMetrics.stateTransitionAnimation, value: lensMonitor.isSmudged)
         .onChange(of: settings.defaultCameraID) { restartPreview() }
         .onChange(of: settings.builtInDisplayCameraID) { restartPreview() }
         .onChange(of: settings.externalDisplayCameraID) { restartPreview() }
@@ -108,13 +114,32 @@ struct CameraSettingsPage: View {
         }
     }
 
+    /// Shown under the live preview once `LensSmudgeMonitor` has seen a consistently smudged lens for a couple of
+    /// seconds; clears on its own after a wipe.
+    private var lensSmudgeHint: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11))
+                .foregroundStyle(SettingsMetrics.qualityFairColor)
+                .accessibilityHidden(true)
+            SettingsCaption(text: "This camera's lens looks smudged. Giving it a gentle wipe can make Face Unlock faster and more reliable.")
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private func showPreview() {
         isPreviewShown = true
-        Task { await previewCamera.start() }
+        Task {
+            await previewCamera.start()
+            // Only once frames can flow — and not if the preview was hidden again while the camera spun up.
+            guard isPreviewShown, previewCamera.errorMessage == nil else { return }
+            lensMonitor.start(sampling: previewCamera)
+        }
     }
 
     private func hidePreview() {
         guard isPreviewShown else { return }
+        lensMonitor.stop()
         previewCamera.stop()
         isPreviewShown = false
     }
@@ -124,8 +149,14 @@ struct CameraSettingsPage: View {
     /// not be what quietly turns it on.
     private func restartPreview() {
         guard isPreviewShown else { return }
+        // A different camera is a different lens — its verdict starts over.
+        lensMonitor.stop()
         previewCamera.stop()
-        Task { await previewCamera.start() }
+        Task {
+            await previewCamera.start()
+            guard isPreviewShown, previewCamera.errorMessage == nil else { return }
+            lensMonitor.start(sampling: previewCamera)
+        }
     }
 
     private func cameraPicker(title: String, selection: Binding<String?>) -> some View {

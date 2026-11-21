@@ -3,9 +3,10 @@
 //  glance
 //
 //  SwiftUI root hosted inside the fixed-size NotchWindow — only content moves/resizes.
-//  Two silhouettes per screen (see NotchPanelStyle): `.notch` sits on the physical
-//  cutout; `.pill` is a detached island that slides on/off screen (and docks in place
-//  on the lock screen instead of sliding).
+//  Three silhouettes per screen (see NotchPanelStyle): `.notch` sits on the physical
+//  notch; `.island` sits on a hardware Dynamic Island and grows out of it; `.pill` is a
+//  detached software island that slides on/off screen (and docks in place on the lock
+//  screen instead of sliding).
 //
 //  Enter/exit choreography (pill only, see `scheduleChoreography()`) staggers slide vs.
 //  expansion using real `Task.sleep` delays on separate `@State` mirrors, not two
@@ -30,6 +31,9 @@ struct NotchOverlayView: View {
     let controller: NotchOverlayController
 
     @State private var isHovering = false
+    /// Drops the breathing pulse and the springs' overshoot; the open/close itself still animates, since it's the
+    /// only cue that a scan started or ended.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Visual mirrors of the controller's target state — see the file header for why
     /// these are separate `@State` rather than computed directly.
@@ -61,12 +65,12 @@ struct NotchOverlayView: View {
         }
     }
 
-    /// Notch style is always positioned (the physical notch never travels). Expanded
+    /// Notch and island styles are always positioned (the hardware never travels). Expanded
     /// always implies positioned regardless of the docked flag, so a mid-success
     /// `disarm()` (which undocks) doesn't yank the panel away mid-animation.
     private var targetIsPositioned: Bool {
         if targetIsExpanded { return true }
-        if style == .notch { return true }
+        if style.isDocked { return true }
         return controller.isPillDocked
     }
 
@@ -84,17 +88,27 @@ struct NotchOverlayView: View {
     }
 
     private var scanOpenSize: CGSize {
-        style == .notch ? NotchGeometry.notchOpenSize : NotchGeometry.pillOpenSize
+        switch style {
+        case .notch: return NotchGeometry.notchOpenSize
+        case .island: return NotchGeometry.islandOpenSize
+        case .pill: return NotchGeometry.pillOpenSize
+        }
     }
 
     /// In notch style the width grows to add flanking black beside the physical cutout;
-    /// the height grows since the cutout itself can't, so the bump appears below it.
+    /// the height grows since the cutout itself can't, so the bump appears below it. The
+    /// island only widens — iPhone's compact Live Activity — keeping the hardware's height.
     private var minimalOpenBodySize: CGSize {
         switch style {
         case .notch:
             return CGSize(
                 width: closedBodySize.width + NotchGeometry.minimalNotchFlankWidth * 2,
                 height: closedBodySize.height + NotchGeometry.minimalNotchHeightBump
+            )
+        case .island:
+            return CGSize(
+                width: closedBodySize.width + NotchGeometry.islandMinimalFlankWidth * 2,
+                height: closedBodySize.height
             )
         case .pill:
             return CGSize(
@@ -116,14 +130,18 @@ struct NotchOverlayView: View {
     private var topRadius: CGFloat {
         if visualIsExpanded {
             if isMinimalScan {
-                // Pill stays a true capsule as it stretches — radius tracks the animating height.
+                // Pill and island stay true capsules as they stretch — radius tracks the animating height.
                 return style == .notch
                     ? NotchGeometry.minimalNotchTopRadius
                     : minimalOpenBodySize.height / 2
             }
-            return style == .notch ? NotchGeometry.openTopRadius : NotchGeometry.pillOpenCornerRadius
+            switch style {
+            case .notch: return NotchGeometry.openTopRadius
+            case .island: return NotchGeometry.islandOpenCornerRadius
+            case .pill: return NotchGeometry.pillOpenCornerRadius
+            }
         }
-        // Half the height is exactly a capsule end, in pill style.
+        // Half the height is exactly a capsule end — the island's own hardware shape, or the pill's.
         return style == .notch ? NotchGeometry.closedTopRadius : closedBodySize.height / 2
     }
 
@@ -135,8 +153,8 @@ struct NotchOverlayView: View {
                     : minimalOpenBodySize.height / 2
             }
             guard style == .notch else {
-                // Uniform corners in pill style — no flare to balance, unlike the notch.
-                return NotchGeometry.pillOpenCornerRadius
+                // Uniform corners in pill and island styles — no flare to balance, unlike the notch.
+                return style == .island ? NotchGeometry.islandOpenCornerRadius : NotchGeometry.pillOpenCornerRadius
             }
             return onboardingController?.panelBottomRadius ?? NotchGeometry.openBottomRadius
         }
@@ -160,7 +178,10 @@ struct NotchOverlayView: View {
     /// Top-aligned inside the fixed window frame, so sliding is purely a matter of
     /// where the top edge sits.
     private var verticalOffset: CGFloat {
-        guard style == .pill else { return 0 }
+        guard style == .pill else {
+            // Notch: flush with the top edge. Island: level with the hardware, a few points below it.
+            return controller.geometry.closedTopInset
+        }
         guard visualIsPositioned else {
             return -(closedBodySize.height + NotchGeometry.pillOffscreenSlack)
         }
@@ -173,25 +194,45 @@ struct NotchOverlayView: View {
     }
 
     private var scanContentPaddingTop: CGFloat {
-        style == .pill ? NotchGeometry.pillContentPaddingTop : NotchGeometry.notchContentPaddingTop
+        switch style {
+        case .notch: return NotchGeometry.notchContentPaddingTop
+        case .island: return NotchGeometry.islandContentPaddingTop
+        case .pill: return NotchGeometry.pillContentPaddingTop
+        }
     }
 
     private var scanContentPaddingLeading: CGFloat {
-        style == .pill ? NotchGeometry.pillContentPaddingLeading : NotchGeometry.notchContentPaddingLeading
+        switch style {
+        case .notch: return NotchGeometry.notchContentPaddingLeading
+        case .island: return NotchGeometry.islandContentPaddingSide
+        case .pill: return NotchGeometry.pillContentPaddingLeading
+        }
     }
 
     private var scanContentPaddingTrailing: CGFloat {
-        style == .pill ? NotchGeometry.pillContentPaddingTrailing : NotchGeometry.notchContentPaddingTrailing
+        switch style {
+        case .notch: return NotchGeometry.notchContentPaddingTrailing
+        case .island: return NotchGeometry.islandContentPaddingSide
+        case .pill: return NotchGeometry.pillContentPaddingTrailing
+        }
     }
 
     private var scanContentPaddingBottom: CGFloat {
-        style == .pill ? NotchGeometry.pillContentPaddingBottom : NotchGeometry.notchContentPaddingBottom
+        switch style {
+        case .notch: return NotchGeometry.notchContentPaddingBottom
+        case .island: return NotchGeometry.islandContentPaddingBottom
+        case .pill: return NotchGeometry.pillContentPaddingBottom
+        }
     }
 
     /// Direction-only — any enter-side delay is a real `Task.sleep` before this is
     /// applied (see `scheduleChoreography()`), not baked into the curve.
     private func expansionAnimation(entering: Bool) -> Animation {
-        entering
+        if reduceMotion {
+            // Critically damped both ways — no bounce past the target size.
+            return .spring(response: NotchGeometry.openSpringResponse, dampingFraction: 1)
+        }
+        return entering
             ? .spring(response: NotchGeometry.openSpringResponse, dampingFraction: NotchGeometry.openSpringDamping)
             : .spring(response: NotchGeometry.closeSpringResponse, dampingFraction: NotchGeometry.closeSpringDamping)
     }
@@ -225,16 +266,10 @@ struct NotchOverlayView: View {
             MinimalUnlockView(
                 media: controller.media,
                 isUnlocked: isMinimalLockOpen,
-                // The notch's flare eats `topRadius` before any real black starts.
-                edgeInset: NotchGeometry.minimalContentEdgeInset
-                    + (style == .notch ? topRadius : 0),
-                lockIconSize: style == .notch
-                    ? NotchGeometry.minimalNotchLockIconSize : NotchGeometry.minimalLockIconSize,
-                mediaWidth: style == .notch
-                    ? NotchGeometry.minimalNotchMediaWidth : NotchGeometry.minimalMediaWidth,
-                mediaVerticalInset: style == .notch
-                    ? NotchGeometry.minimalNotchMediaVerticalInset
-                    : NotchGeometry.minimalMediaVerticalInset,
+                edgeInset: minimalEdgeInset,
+                lockIconSize: minimalLockIconSize,
+                mediaWidth: minimalMediaWidth,
+                mediaVerticalInset: minimalMediaVerticalInset,
                 pulseScale: scanPulseScale,
                 pulseOpacity: scanPulseOpacity
             )
@@ -246,6 +281,41 @@ struct NotchOverlayView: View {
                 .padding(.bottom, scanContentPaddingBottom)
                 .scaleEffect(scanPulseScale)
                 .opacity(scanPulseOpacity)
+        }
+    }
+
+    // MARK: - Minimal style metrics, per silhouette
+
+    private var minimalEdgeInset: CGFloat {
+        switch style {
+        // The notch's flare eats `topRadius` before any real black starts.
+        case .notch: return NotchGeometry.minimalContentEdgeInset + topRadius
+        case .island: return NotchGeometry.islandMinimalEdgeInset
+        case .pill: return NotchGeometry.minimalContentEdgeInset
+        }
+    }
+
+    private var minimalLockIconSize: CGFloat {
+        switch style {
+        case .notch: return NotchGeometry.minimalNotchLockIconSize
+        case .island: return NotchGeometry.islandMinimalLockIconSize
+        case .pill: return NotchGeometry.minimalLockIconSize
+        }
+    }
+
+    private var minimalMediaWidth: CGFloat {
+        switch style {
+        case .notch: return NotchGeometry.minimalNotchMediaWidth
+        case .island: return NotchGeometry.islandMinimalMediaWidth
+        case .pill: return NotchGeometry.minimalMediaWidth
+        }
+    }
+
+    private var minimalMediaVerticalInset: CGFloat {
+        switch style {
+        case .notch: return NotchGeometry.minimalNotchMediaVerticalInset
+        case .island: return NotchGeometry.islandMinimalMediaVerticalInset
+        case .pill: return NotchGeometry.minimalMediaVerticalInset
         }
     }
 
@@ -301,6 +371,13 @@ struct NotchOverlayView: View {
                 controller.activate()
             }
         }
+        // Touchscreen Macs (the PROLED XDR MacBook Pro) can't hover at all, and a click is the
+        // deliberate version of a hover anyway. Disabled while onboarding owns the panel so it
+        // never competes with that flow's own buttons and text fields.
+        .simultaneousGesture(
+            TapGesture().onEnded { controller.activate(deliberately: true) },
+            including: onboardingController == nil ? .all : .subviews
+        )
         .onAppear {
             // Sync without animating — nothing to animate from on first appearance.
             visualIsExpanded = targetIsExpanded
@@ -396,7 +473,7 @@ struct NotchOverlayView: View {
     // MARK: - Scan pulse
 
     private func updateScanPulse() {
-        if isScanning {
+        if isScanning, !reduceMotion {
             startScanPulse()
         } else {
             stopScanPulse()

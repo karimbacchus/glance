@@ -76,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Off the main thread, so neither launch nor the first lock-screen scan waits on the cold Core ML load.
+        FaceRecognitionPipeline.preloadSharedEmbedder()
+
         GlanceSettings.shared.bindMenuBarVisibility { [weak self] isVisible in
             self?.setMenuBarVisibility(isVisible)
         }
@@ -207,12 +210,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateSessionMenuItem()
     }
 
+    /// Titled as the action it performs (HIG: menu items are verbs) rather than the current state, which read as a
+    /// status line nobody would think to click. "…" because unlocking continues into a Touch ID prompt.
     private func updateSessionMenuItem() {
         guard let sessionMenuItem else { return }
+        // Some unlock paths (e.g. the Face page's own unlock button) go straight to `SecureCredentialManager`, so the
+        // controller's cached flag can be stale by the time the menu opens.
+        environment.pocController.refreshCredentialStatus()
         let isUnlocked = environment.pocController.isSessionUnlocked
-        sessionMenuItem.title = isUnlocked ? "Session Unlocked" : "Session Locked"
+        sessionMenuItem.title = isUnlocked ? "Lock Session" : "Unlock Session…"
         sessionMenuItem.image = NSImage(
-            systemSymbolName: isUnlocked ? "lock.open.fill" : "lock.fill",
+            systemSymbolName: isUnlocked ? "lock.fill" : "touchid",
             accessibilityDescription: nil
         )
     }

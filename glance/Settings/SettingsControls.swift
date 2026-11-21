@@ -19,6 +19,23 @@ enum SettingsTabIcon {
     case asset(String)
 }
 
+extension View {
+    /// Chrome for the header's floating controls (session pill, refresh button). macOS 26+ gets interactive Liquid
+    /// Glass — these controls float above scrolling content, which is exactly the layer glass is meant for — while
+    /// macOS 15 keeps the original translucent fill and hairline.
+    @ViewBuilder
+    func settingsHeaderChrome<S: InsettableShape>(in shape: S) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: shape)
+        } else {
+            background(shape.fill(SettingsMetrics.rowColor))
+                .overlay(
+                    shape.strokeBorder(SettingsMetrics.rowBorder, lineWidth: SettingsMetrics.rowBorderWidth)
+                )
+        }
+    }
+}
+
 /// Small "i" glyph that reveals a short explanation in a native popover on
 /// tap. Drop it next to a row's title (see `SettingsRowContent.info`) or
 /// standalone anywhere a setting needs a one-line explanation.
@@ -387,9 +404,14 @@ struct SettingsOptionSliderRowContent: View {
 struct HoldToConfirmButton: View {
     let title: String
     var holdDuration: TimeInterval = 3
+    /// Spelled-out consequence for the accessible confirmation dialog (see `isConfirmingAccessibly`).
+    var confirmationMessage: String? = nil
     let action: () -> Void
 
     @State private var fillProgress: CGFloat = 0
+    /// VoiceOver and Full Keyboard Access can't perform a timed press-and-hold, so their activation opens a
+    /// confirmation dialog instead — the same deliberate two-step commitment, in a form they can operate.
+    @State private var isConfirmingAccessibly = false
 
     var body: some View {
         Text(title)
@@ -419,6 +441,21 @@ struct HoldToConfirmButton: View {
                 // of step with the gesture's `minimumDuration`.
                 withAnimation(.linear(duration: isPressing ? holdDuration : 0.18)) {
                     fillProgress = isPressing ? 1 : 0
+                }
+            }
+            // A plain click otherwise does nothing visible, which reads as broken.
+            .help("Press and hold for \(Int(holdDuration)) seconds to confirm")
+            .accessibilityElement()
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Asks for confirmation first.")
+            .accessibilityAction { isConfirmingAccessibly = true }
+            .confirmationDialog("\(title)?", isPresented: $isConfirmingAccessibly) {
+                Button(title, role: .destructive, action: action)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if let confirmationMessage {
+                    Text(confirmationMessage)
                 }
             }
     }

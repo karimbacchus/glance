@@ -27,17 +27,15 @@ struct SessionLockButton: View {
                     .font(SettingsMetrics.headerButtonFont)
                     .contentTransition(.opacity)
             }
-            .foregroundStyle(SettingsMetrics.textPrimary)
+            .foregroundStyle(SettingsMetrics.chromeForeground)
             .padding(.horizontal, 12)
             .frame(height: SettingsMetrics.headerButtonHeight)
-            .background(Capsule().fill(SettingsMetrics.rowColor))
-            .overlay(
-                Capsule()
-                    .strokeBorder(SettingsMetrics.rowBorder, lineWidth: SettingsMetrics.rowBorderWidth)
-            )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        // Liquid Glass on macOS 26+, the original translucent pill before that.
+        .settingsHeaderChrome(in: Capsule())
+        .help(pocController.isSessionUnlocked ? "Lock the session" : "Unlock the session with Touch ID")
         // Only disabled mid-authentication — a tap then would double up the
         // Touch ID prompt or race the unresolved lock.
         .disabled(isUnlocking)

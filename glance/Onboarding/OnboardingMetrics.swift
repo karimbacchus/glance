@@ -48,6 +48,16 @@ enum OnboardingMetrics {
 
     static func panelHeight(for step: OnboardingStep, style: NotchPanelStyle) -> CGFloat {
         switch (step, style) {
+        // Island panels hang from the hardware camera the way notch panels do, so they need extra clearance above
+        // their content — but otherwise lay out like the pill. Each is the pill's height plus that clearance.
+        case (.enroll, .island):
+            // The camera ring takes the notch's top padding to clear the hardware.
+            return pillEnrollHeight + (enrollCameraTopPaddingNotch - enrollCameraTopPaddingPill)
+        case (.complete, .island):
+            // Vertically centered, well below the camera already.
+            return pillCompleteHeight
+        case (_, .island):
+            return panelHeight(for: step, style: .pill) + (islandTitleTopInset - pillTitleTopInset)
         case (.intro, .notch): return notchIntroHeight
         case (.intro, .pill): return pillIntroHeight
         case (.permissions, .notch): return notchPermissionsHeight
@@ -92,6 +102,8 @@ enum OnboardingMetrics {
                 notchIntroHeight, notchPermissionsHeight, notchSecurityNoticeHeight, notchPreSetupHeight,
                 notchSelectCameraHeight, notchEnrollHeight, notchNameHeight, notchPasswordHeight, notchCompleteHeight,
             ].max() ?? notchEnrollHeight
+        case .island:
+            return OnboardingStep.allCases.map { panelHeight(for: $0, style: .island) }.max() ?? pillEnrollHeight
         case .pill:
             return [
                 pillIntroHeight, pillPermissionsHeight, pillSecurityNoticeHeight, pillPreSetupHeight,
@@ -112,6 +124,10 @@ enum OnboardingMetrics {
     /// Pill style has no housing to clear — the panel floats free of the
     /// screen edge — so the same inset just leaves content sitting low.
     static let pillTitleTopInset: CGFloat = 32
+    /// Island style: the hardware camera occupies the panel's top-center
+    /// ~32pt (the panel's top edge is level with the island's), so content
+    /// starts just below it — less than the notch needs, more than the pill.
+    static let islandTitleTopInset: CGFloat = 40
 
     static let notchContentLeadingInset: CGFloat = 28
     static let notchContentTrailingInset: CGFloat = 28
@@ -122,19 +138,25 @@ enum OnboardingMetrics {
     static let pillContentBottomInset: CGFloat = 36
 
     static func titleTopInset(for style: NotchPanelStyle) -> CGFloat {
-        style == .pill ? pillTitleTopInset : titleTopInset
+        switch style {
+        case .notch: return titleTopInset
+        case .island: return islandTitleTopInset
+        case .pill: return pillTitleTopInset
+        }
     }
 
+    // The island's corners are uniform like the pill's (no flare to clear), so it shares the pill's side and bottom insets.
+
     static func contentLeadingInset(for style: NotchPanelStyle) -> CGFloat {
-        style == .pill ? pillContentLeadingInset : notchContentLeadingInset
+        style == .notch ? notchContentLeadingInset : pillContentLeadingInset
     }
 
     static func contentTrailingInset(for style: NotchPanelStyle) -> CGFloat {
-        style == .pill ? pillContentTrailingInset : notchContentTrailingInset
+        style == .notch ? notchContentTrailingInset : pillContentTrailingInset
     }
 
     static func contentBottomInset(for style: NotchPanelStyle) -> CGFloat {
-        style == .pill ? pillContentBottomInset : notchContentBottomInset
+        style == .notch ? notchContentBottomInset : pillContentBottomInset
     }
 
     // MARK: - Shared control geometry

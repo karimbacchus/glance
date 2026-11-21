@@ -9,12 +9,19 @@ import AppKit
 import CoreGraphics
 
 struct NotchGeometry {
-    /// Physical notch's own dimensions, or `pillClosedSize`.
+    /// The hardware cutout's own dimensions (notch or island), or `pillClosedSize` on a display with neither.
     let closedSize: CGSize
-    /// True if this screen has a real physical notch (vs. the pill fallback).
-    let isPhysicalNotch: Bool
+    let style: NotchPanelStyle
 
-    var style: NotchPanelStyle { isPhysicalNotch ? .notch : .pill }
+    /// Distance from the screen's top edge to the top of the resting silhouette — and, since every style grows
+    /// downward from its top edge, of the expanded panel too. The pill's slide-in animates away from this.
+    var closedTopInset: CGFloat {
+        switch style {
+        case .notch: return 0
+        case .island: return Self.islandTopInset
+        case .pill: return Self.pillTopGap
+        }
+    }
 
     /// Fixed footprint of expanded scan-mode content in notch style. Sized for the
     /// square (432x432) scan animation plus breathing room. Pill has its own `pillOpenSize`.
@@ -32,6 +39,47 @@ struct NotchGeometry {
     static func flareAllowance(topRadius: CGFloat, style: NotchPanelStyle) -> CGFloat {
         style == .notch ? topRadius * 2 : 0
     }
+
+    // MARK: - Island style (Dynamic Island displays) — EDIT HERE
+    //
+    // The PROLED XDR MacBook Pro replaces the notch with a hole-punch camera: a capsule floating just below the top
+    // edge, with display pixels all around it. macOS publishes only the rectangle it reserves for it — the gap between
+    // `auxiliaryTopLeftArea` and `auxiliaryTopRightArea`, `safeAreaInsets.top` tall and flush with the top edge (59 x 40pt
+    // on a 16" Mac17,12) — not the capsule itself. Its shape below was measured from what the system paints into the
+    // framebuffer behind the cutout on that machine: the reserved rect's full width, from ~8.5pt below the top edge down
+    // to the bottom of the reserved band (a 31pt-tall stadium). Each value is rounded outward by half a point so the
+    // overlay's resting capsule fully covers the hardware's anti-aliased edge.
+
+    /// Gap between the screen's top edge and the top of the island. The island's height is the reserved band's height
+    /// minus this.
+    static let islandTopInset: CGFloat = 8
+
+    /// A cutout narrower than this multiple of its reserved band's height is a hole-punch island, not a notch: notches
+    /// are several times wider than tall (~180–200 x 32–38pt), the island barely wider than tall (59 x 40pt).
+    static let islandMaxAspectRatio: CGFloat = 3
+
+    /// Expanded scan-mode footprint: the rounded square the island grows into, like Face ID on iPhone. A little taller
+    /// than wide so the animation sits below the camera rather than crowding it.
+    static let islandOpenSize = CGSize(width: 180, height: 188)
+    /// Large and continuous, like an expanded iPhone island; matches the pill's open radius closely.
+    static let islandOpenCornerRadius: CGFloat = 46
+
+    /// Scan-mode content insets. The top is deeper than the rest: the camera occupies the panel's top-center
+    /// `closedSize.height` points, and the animation must sit fully below it.
+    static let islandContentPaddingTop: CGFloat = 40
+    static let islandContentPaddingSide: CGFloat = 32
+    static let islandContentPaddingBottom: CGFloat = 32
+
+    /// Minimal style: the island stretches sideways into a wider capsule — iPhone's compact Live Activity — keeping
+    /// the hardware's own height, with the lock glyph and the animation flanking the camera. Each flank must fit
+    /// `islandMinimalEdgeInset + islandMinimalMediaWidth`, or content would slide under the camera.
+    static let islandMinimalFlankWidth: CGFloat = 40
+    static let islandMinimalEdgeInset: CGFloat = 6
+    static let islandMinimalLockIconSize: CGFloat = 13
+    static let islandMinimalMediaWidth: CGFloat = 30
+    static let islandMinimalMediaVerticalInset: CGFloat = 6
+
+    static let islandShadowPadding: CGFloat = 24
 
     // MARK: - Pill style (non-notched displays) — EDIT HERE
     //
@@ -178,6 +226,14 @@ struct NotchGeometry {
                 width: contentWidth + notchShadowPadding * 2 + hoverBump,
                 height: contentHeight + notchShadowPadding + hoverBump
             )
+        case .island:
+            let contentWidth = max(islandOpenSize.width, OnboardingMetrics.maxPanelWidth)
+            let contentHeight = max(islandOpenSize.height, OnboardingMetrics.maxPanelHeight(for: .island))
+            return CGSize(
+                width: contentWidth + islandShadowPadding * 2 + hoverBump,
+                // The whole panel hangs `islandTopInset` below the top edge, level with the hardware.
+                height: contentHeight + islandShadowPadding + hoverBump + islandTopInset
+            )
         case .pill:
             let contentWidth = max(pillOpenSize.width, OnboardingMetrics.maxPanelWidth)
             let contentHeight = max(pillOpenSize.height, OnboardingMetrics.maxPanelHeight(for: .pill))
@@ -191,14 +247,14 @@ struct NotchGeometry {
 
     static func forMainScreen() -> NotchGeometry {
         guard let screen = NSScreen.main else {
-            return NotchGeometry(closedSize: pillClosedSize, isPhysicalNotch: false)
+            return NotchGeometry(closedSize: pillClosedSize, style: .pill)
         }
         return forScreen(screen)
     }
 
     static func forScreen(_ screen: NSScreen) -> NotchGeometry {
         guard screen.safeAreaInsets.top > 0 else {
-            return NotchGeometry(closedSize: pillClosedSize, isPhysicalNotch: false)
+            return NotchGeometry(closedSize: pillClosedSize, style: .pill)
         }
 
         // Width derived from the menu-bar areas flanking the notch — nil/empty on
@@ -211,12 +267,19 @@ struct NotchGeometry {
         let width = screen.frame.width - leftPadding - rightPadding
         let height = screen.safeAreaInsets.top
 
-        return NotchGeometry(closedSize: CGSize(width: width, height: height), isPhysicalNotch: true)
+        // Both a notch and an island reserve a flush-with-the-top rectangle; only its proportions tell them apart.
+        if width < height * islandMaxAspectRatio, height > islandTopInset {
+            return NotchGeometry(
+                closedSize: CGSize(width: width, height: height - islandTopInset),
+                style: .island
+            )
+        }
+        return NotchGeometry(closedSize: CGSize(width: width, height: height), style: .notch)
     }
 
     /// Picks the screen the overlay should show on. If a display is pinned
     /// (`GlanceSettings.preferredDisplayID`), it's used only if still connected — no
-    /// fallback. Otherwise: the physical notch if any display has one, else the primary screen.
+    /// fallback. Otherwise: the display with a camera cutout (notch or island) if any, else the primary screen.
     @MainActor
     static func preferredScreen() -> NSScreen? {
         if let targetID = GlanceSettings.shared.preferredDisplayID {

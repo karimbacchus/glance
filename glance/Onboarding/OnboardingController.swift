@@ -389,6 +389,26 @@ final class OnboardingController {
     private(set) var excessiveTurn: ExcessiveTurn?
     private(set) var enrollmentComplete = false
 
+    /// Scores enrollment frames for a smudged lens (macOS 26+). A smudge here is worse than at unlock time: it's baked
+    /// into the stored template for as long as this identity stays enrolled.
+    private let lensMonitor = LensSmudgeMonitor()
+    /// Set once the smudge hint has held the first capture for `lensSmudgeHintMaxDuration`; it isn't shown again in
+    /// this enrollment after that. (Once the first sample is captured `showsLensSmudgeHint` is false anyway.)
+    private var lensSmudgeHintRetired = false
+    /// Bounds how long the hint can hold the first capture, so a false positive (a soft, dim webcam image scores like a
+    /// smudge) costs a few seconds rather than stranding the user.
+    private let lensSmudgeHintMaxDuration: Duration = .seconds(6)
+    @ObservationIgnored private var lensSmudgeHintTask: Task<Void, Never>?
+
+    /// Asks for a wipe instead of the first pose's instruction, holding that pose's capture meanwhile. Limited to the
+    /// first pose before anything has been captured: later in the flow the user is mid-turn and needs pose guidance,
+    /// and an earlier verdict would simply never have had time to form.
+    var showsLensSmudgeHint: Bool {
+        step == .enroll && !enrollmentComplete && !lensSmudgeHintRetired
+            && currentPoseIndex == 0 && capturedForCurrentPose == 0
+            && lensMonitor.isSmudged
+    }
+
     enum ExcessiveTurn: Equatable {
         case left, topLeft, up, topRight, right, bottomRight, down, bottomLeft
 
@@ -455,6 +475,7 @@ final class OnboardingController {
         if enrollmentComplete { return "Face captured" }
         if let excessiveTurn { return excessiveTurn.instruction }
         if isTooFar { return "Bring your face closer" }
+        if showsLensSmudgeHint { return "Camera lens looks smudged — give it a wipe" }
         return currentPose?.instruction ?? ""
     }
 
@@ -599,6 +620,7 @@ final class OnboardingController {
         case .enroll:
             // Camera has to stop here; `.enroll` is the only step that owns it.
             resetEnrollmentState()
+            stopLensSmudgeMonitoring()
             camera.stop()
             sweepWindow.dismiss()
             withAnimation(OnboardingMetrics.stepAnimation) { step = .selectCamera }
@@ -652,13 +674,19 @@ final class OnboardingController {
         poseHoldStartedAt = nil
         excessiveTurn = nil
         sweepWindow.present(for: self)
-        Task { await camera.start() }
+        lensSmudgeHintRetired = false
+        Task {
+            await camera.start()
+            guard step == .enroll, camera.errorMessage == nil else { return }
+            lensMonitor.start(sampling: camera)
+        }
     }
 
     /// Tears down everything onboarding spun up: camera, sweep overlay,
     /// and permissions polling. Idempotent.
     func teardown() {
         stopPermissionsPolling()
+        stopLensSmudgeMonitoring()
         camera.stop()
         sweepWindow.dismiss()
     }
@@ -875,6 +903,14 @@ final class OnboardingController {
             return
         }
 
+        // Give the user a moment to act on the smudge hint before the first sample is taken through the smudge.
+        if showsLensSmudgeHint {
+            scheduleLensSmudgeHintRetirement()
+            matchStreak = 0
+            poseHoldStartedAt = nil
+            return
+        }
+
         let qualityOK = result.quality.map { $0 >= qualityFloor } ?? true
         // Only a 5-point alignment is reliably canonical; a 2-point/padded-crop fallback
         // isn't accepted toward enrollment.
@@ -971,10 +1007,28 @@ final class OnboardingController {
         }
     }
 
+    /// Starts the bounded hold the first time the hint actually blocks a capture. Idempotent.
+    private func scheduleLensSmudgeHintRetirement() {
+        guard lensSmudgeHintTask == nil else { return }
+        let maxDuration = lensSmudgeHintMaxDuration
+        lensSmudgeHintTask = Task { [weak self] in
+            try? await Task.sleep(for: maxDuration)
+            guard !Task.isCancelled else { return }
+            self?.lensSmudgeHintRetired = true
+        }
+    }
+
+    private func stopLensSmudgeMonitoring() {
+        lensMonitor.stop()
+        lensSmudgeHintTask?.cancel()
+        lensSmudgeHintTask = nil
+    }
+
     /// Runs the camera-complete sequence (instructions fade, preview fades, checkmark
     /// draws) then auto-advances to naming. Samples stay in memory here.
     private func finishEnrollment() async {
         enrollmentComplete = true
+        stopLensSmudgeMonitoring()
         sweepWindow.dismiss()
         try? await Task.sleep(for: .seconds(OnboardingMetrics.guideOverlayFadeOut))
 

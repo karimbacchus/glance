@@ -44,8 +44,9 @@ final class UpdaterController {
         // `Task { @MainActor in }` since the KVO closure itself carries no actor isolation the compiler can see.
         canCheckForUpdatesObservation = controller.updater.observe(
             \.canCheckForUpdates, options: [.initial, .new]
-        ) { updater, _ in
-            // `[weak self]` captured on the Task's closure, not the outer KVO one — Swift 6 flags the latter as unsafe.
+        ) { [weak self] updater, _ in
+            // Weak on both closures: weakening only the Task's capture still made this outer closure hold `self` strongly
+            // (a retain cycle through `canCheckForUpdatesObservation`), which the compiler flags.
             let value = updater.canCheckForUpdates
             Task { @MainActor [weak self] in
                 self?.canCheckForUpdates = value

@@ -119,7 +119,11 @@ struct PasswordSettingsPage: View {
                 SettingsGroupDivider()
 
                 SettingsRowContent(title: "Remove password") {
-                    HoldToConfirmButton(title: "Remove", action: removePassword)
+                    HoldToConfirmButton(
+                        title: "Remove",
+                        confirmationMessage: "Your stored password and every enrolled face will be deleted. Face Unlock stops working until you set them up again.",
+                        action: removePassword
+                    )
                 }
             }
 

@@ -38,7 +38,8 @@ extension Notification.Name {
     /// Fires whenever the cached session key changes, so anything encrypted under it (e.g. `FaceEnrollmentStore`) can reload
     /// itself instead of relying on each call site to remember to — a past bug had the sidebar's unlock forget this, leaving
     /// face unlock silently running on stale pre-unlock data.
-    static let secureCredentialSessionDidChange = Notification.Name("SecureCredentialManager.sessionDidChange")
+    /// `nonisolated` — posted from whichever thread changed the session (see `setCachedKey`).
+    nonisolated static let secureCredentialSessionDidChange = Notification.Name("SecureCredentialManager.sessionDidChange")
 }
 
 enum SecureCredentialManager {

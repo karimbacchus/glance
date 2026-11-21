@@ -24,6 +24,7 @@ struct SettingsTabBar: View {
     /// Every visible tab's measured frame, keyed by tab — read back via
     /// `TabFramePreferenceKey` from each item's own `GeometryReader`.
     @State private var tabFrames: [SettingsTab: CGRect] = [:]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let coordinateSpace = "SettingsTabBar"
 
@@ -50,16 +51,7 @@ struct SettingsTabBar: View {
         .coordinateSpace(name: Self.coordinateSpace)
         .padding(.horizontal, SettingsMetrics.tabBarHorizontalPadding)
         .frame(height: SettingsMetrics.tabBarHeight)
-        .background {
-            Capsule()
-                .fill(.regularMaterial)
-            Capsule()
-                .fill(SettingsMetrics.tabBarTint)
-        }
-        .overlay(
-            Capsule()
-                .strokeBorder(SettingsMetrics.tabBarBorder, lineWidth: 1)
-        )
+        .modifier(TabBarChrome())
         .onPreferenceChange(TabFramePreferenceKey.self) { frames in
             withAnimation(SettingsMetrics.tabSelectionAnimation) {
                 tabFrames = frames
@@ -81,10 +73,11 @@ struct SettingsTabBar: View {
                         .font(SettingsMetrics.tabTitleFont)
                         .lineLimit(1)
                         .fixedSize()
-                        .transition(.tabLabelReveal)
+                        // The unfurl slides and blurs; Reduce Motion gets a plain crossfade.
+                        .transition(reduceMotion ? .opacity : .tabLabelReveal)
                 }
             }
-            .foregroundStyle(SettingsMetrics.textPrimary)
+            .foregroundStyle(SettingsMetrics.chromeForeground)
             .padding(.horizontal, isSelected
                 ? SettingsMetrics.selectedTabItemHorizontalPadding
                 : SettingsMetrics.tabItemHorizontalPadding)
@@ -103,6 +96,30 @@ struct SettingsTabBar: View {
         .help(tab.title)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The bar's own surface. macOS 26+: a single Liquid Glass capsule — the floating tab bar is the archetypal glass
+/// element, and the system draws its edge highlight and adapts it to whatever scrolls beneath. Deliberately not
+/// `.interactive()`: each tab is its own control, so the whole bar shouldn't react to a press on one of them. Earlier
+/// systems keep the original material + tint + hairline.
+private struct TabBarChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular, in: Capsule())
+        } else {
+            content
+                .background {
+                    Capsule()
+                        .fill(.regularMaterial)
+                    Capsule()
+                        .fill(SettingsMetrics.tabBarTint)
+                }
+                .overlay(
+                    Capsule()
+                        .strokeBorder(SettingsMetrics.tabBarBorder, lineWidth: 1)
+                )
+        }
     }
 }
 

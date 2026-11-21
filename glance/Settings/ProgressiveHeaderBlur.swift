@@ -7,11 +7,11 @@
 //  scrolled rows sharpen up as they pass underneath rather than cutting
 //  from blurred to crisp at a hard line.
 //
-//  SwiftUI's native `scrollEdgeEffectStyle(.soft, for: .top)` (macOS 26) is
-//  the system version of exactly this, but it needs macOS 26 — this
-//  window's deployment target is 15.0, and the header here is a custom
-//  overlay rather than a real toolbar/safe-area inset for that system
-//  effect to attach to. So this fakes it manually: each `Material` (weakest
+//  Used on every macOS version. macOS 26's `safeAreaBar` +
+//  `scrollEdgeEffectStyle` is the system's version of this, but compared
+//  side by side on macOS 27 `.soft` barely softened rows passing the traffic
+//  lights and `.hard` turned the floating header into an opaque strip (see
+//  `SettingsWindowView.contentPage`). So this does it manually: each `Material` (weakest
 //  to strongest) is masked to fade out over a shorter distance than the
 //  last, so only a thin band right at the top ever stacks every layer —
 //  the same layered-mask trick most manual "progressive blur" implementations
@@ -22,6 +22,9 @@ import SwiftUI
 
 struct ProgressiveHeaderBlur: View {
     var height: CGFloat
+    /// Which edge the blur is strongest at. `.bottom` mirrors it for the
+    /// floating tab bar (macOS 26+, see `SettingsWindowView.contentPage`).
+    var edge: VerticalEdge = .top
 
     /// Weakest to strongest. The weakest spans the whole zone (top fully
     /// opaque, fading to clear by the bottom edge); each stronger material
@@ -32,7 +35,7 @@ struct ProgressiveHeaderBlur: View {
     ]
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack(alignment: edge == .top ? .top : .bottom) {
             ForEach(Array(Self.materials.enumerated()), id: \.offset) { index, material in
                 let fadeEnd = 1 - CGFloat(index) / CGFloat(Self.materials.count)
                 Rectangle()
@@ -43,8 +46,8 @@ struct ProgressiveHeaderBlur: View {
                                 .init(color: .black, location: 0),
                                 .init(color: .clear, location: fadeEnd),
                             ],
-                            startPoint: .top,
-                            endPoint: .bottom
+                            startPoint: edge == .top ? .top : .bottom,
+                            endPoint: edge == .top ? .bottom : .top
                         )
                     )
             }

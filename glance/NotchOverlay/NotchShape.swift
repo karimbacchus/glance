@@ -30,7 +30,8 @@ struct NotchShape: Shape {
     func path(in rect: CGRect) -> Path {
         switch style {
         case .notch: return notchPath(in: rect)
-        case .pill: return pillPath(in: rect)
+        // The island and the pill share a silhouette: uniform continuous corners, nothing flaring into the edge.
+        case .island, .pill: return pillPath(in: rect)
         }
     }
 

@@ -32,6 +32,9 @@ struct CalibrationSample: Identifiable {
 @MainActor
 final class FaceLabController {
     let camera = CameraManager()
+    /// Live lens-smudge score (macOS 26+) — the raw number behind the hint Camera settings and enrollment show, for
+    /// checking `LensSmudgeAssessment`'s thresholds against this Mac's real camera.
+    let lensMonitor = LensSmudgeMonitor()
     let store = FaceEnrollmentStore.shared
     let pipeline = FaceRecognitionPipeline()
 
@@ -106,10 +109,12 @@ final class FaceLabController {
             log(error)
         } else {
             log("Camera started.")
+            lensMonitor.start(sampling: camera)
         }
     }
 
     func stop() {
+        lensMonitor.stop()
         camera.stop()
         detectedFaces = []
         currentResult = nil

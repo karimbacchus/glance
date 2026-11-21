@@ -75,6 +75,25 @@ enum SettingsMetrics {
 
     /// Extra scroll room below a page's last row so it can clear the tab bar.
     static let pageBottomInset: CGFloat = tabBarHeight + tabBarBottomInset + 16
+    /// Height of the bottom progressive blur behind the floating tab bar
+    /// (macOS 26+, where the bar is Liquid Glass) — same extra fade room as
+    /// `headerBlurHeight` gets past the header.
+    static let tabBarBlurHeight: CGFloat = tabBarHeight + tabBarBottomInset + 28
+
+    /// The header's glass controls merging/splitting as Camera's refresh
+    /// button comes and goes (macOS 26+).
+    static let headerMorphAnimation = Animation.smooth(duration: 0.35)
+
+    /// Foreground for labels on the floating chrome (header controls, tab
+    /// bar). On macOS 26 that chrome is Liquid Glass, which adapts its own
+    /// light/dark rendering to whatever scrolls beneath it; `.primary`
+    /// follows that adaptation, where a fixed color could lose contrast.
+    static var chromeForeground: AnyShapeStyle {
+        if #available(macOS 26.0, *) {
+            return AnyShapeStyle(.primary)
+        }
+        return AnyShapeStyle(textPrimary)
+    }
 
     /// Light-mode values match the exact resolved alpha AppKit's own
     /// `NSColor.labelColor`/`.secondaryLabelColor` use (`black @ 0.85`/`0.50`),

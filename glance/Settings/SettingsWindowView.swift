@@ -35,6 +35,8 @@ struct SettingsWindowView: View {
     let environment: AppEnvironment
     @State private var selection: SettingsTab = .general
     @State private var headerTrailingAction: HeaderAction?
+    /// Pairs the header's glass controls so they morph into each other (macOS 26+) — see `header`.
+    @Namespace private var headerGlassNamespace
     @Environment(\.dismissWindow) private var dismissWindow
 
     /// Defense-in-depth, not the primary gate: Settings is `.suppressed` at
@@ -88,6 +90,13 @@ struct SettingsWindowView: View {
 
     /// The header and tab bar float over the scroll content as overlays so
     /// scrolled rows pass underneath them rather than being pushed aside.
+    ///
+    /// macOS 26+ deliberately keeps this overlay layout and the custom
+    /// progressive blur rather than switching to `safeAreaBar` with the
+    /// system's `scrollEdgeEffectStyle`: side-by-side on macOS 27, `.soft`
+    /// left rows crisp right beside the traffic lights and `.hard` turned the
+    /// floating bars into opaque toolbar strips. Liquid Glass goes where it
+    /// belongs instead — on the floating controls themselves.
     private var contentPage: some View {
         ScrollView(.vertical, showsIndicators: false) {
             pageBody
@@ -109,44 +118,87 @@ struct SettingsWindowView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            SettingsTabBar(
-                selection: $selection,
-                isDebugSectionRevealed: environment.isDebugSectionRevealed
-            )
-            .padding(.bottom, SettingsMetrics.tabBarBottomInset)
+            ZStack(alignment: .bottom) {
+                if #available(macOS 26.0, *) {
+                    // Glass is far clearer than the frosted material the bar
+                    // used to be, so busy rows (e.g. the animation tiles)
+                    // showed straight through its icons. The same softening
+                    // the header gets, mirrored, restores legibility.
+                    ProgressiveHeaderBlur(height: SettingsMetrics.tabBarBlurHeight, edge: .bottom)
+                }
+                SettingsTabBar(
+                    selection: $selection,
+                    isDebugSectionRevealed: environment.isDebugSectionRevealed
+                )
+                .padding(.bottom, SettingsMetrics.tabBarBottomInset)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onPreferenceChange(HeaderTrailingActionKey.self) { headerTrailingAction = $0 }
+        .onPreferenceChange(HeaderTrailingActionKey.self) { action in
+            // Animated so Camera's refresh button eases in and out — and on
+            // macOS 26+ its glass grows out of, and folds back into, the
+            // session pill beside it (see `header`).
+            withAnimation(SettingsMetrics.headerMorphAnimation) { headerTrailingAction = action }
+        }
     }
 
     /// Leading side stays empty — the window's real traffic lights are drawn
     /// there by AppKit (see WindowConfiguringView). No background of its
     /// own; `ProgressiveHeaderBlur` sits behind it in `contentPage`.
+    ///
+    /// macOS 26+: both controls share one `GlassEffectContainer`, so they
+    /// render as a single sheet of Liquid Glass that can merge and morph
+    /// rather than as two unrelated blurs.
     private var header: some View {
-        HStack(spacing: 8) {
-            Spacer()
+        Group {
+            if #available(macOS 26.0, *) {
+                GlassEffectContainer(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Spacer()
 
-            if let headerTrailingAction {
-                Button(action: headerTrailingAction.perform) {
-                    Image(systemName: "arrow.trianglehead.clockwise.rotate.90")
-                        .font(.system(size: 13))
-                        .foregroundStyle(SettingsMetrics.textPrimary)
-                        .frame(width: SettingsMetrics.headerButtonHeight, height: SettingsMetrics.headerButtonHeight)
-                        .background(Circle().fill(SettingsMetrics.rowColor))
-                        .overlay(
-                            Circle()
-                                .strokeBorder(SettingsMetrics.rowBorder, lineWidth: SettingsMetrics.rowBorderWidth)
-                        )
-                        .contentShape(Circle())
+                        if let headerTrailingAction {
+                            refreshButton(headerTrailingAction)
+                                .glassEffectID(HeaderGlassID.refresh, in: headerGlassNamespace)
+                        }
+
+                        SessionLockButton(pocController: environment.pocController)
+                            .glassEffectID(HeaderGlassID.session, in: headerGlassNamespace)
+                    }
                 }
-                .buttonStyle(.plain)
-                .help("Refresh camera list")
-            }
+            } else {
+                HStack(spacing: 8) {
+                    Spacer()
 
-            SessionLockButton(pocController: environment.pocController)
+                    if let headerTrailingAction {
+                        refreshButton(headerTrailingAction)
+                    }
+
+                    SessionLockButton(pocController: environment.pocController)
+                }
+            }
         }
         .padding(.horizontal, SettingsMetrics.contentHorizontalPadding)
         .frame(height: SettingsMetrics.headerHeight)
+    }
+
+    /// `nonisolated` — `glassEffectID` needs a `Sendable` id whose `Hashable` conformance isn't main-actor-bound.
+    private nonisolated enum HeaderGlassID: Hashable, Sendable {
+        case refresh
+        case session
+    }
+
+    private func refreshButton(_ action: HeaderAction) -> some View {
+        Button(action: action.perform) {
+            Image(systemName: "arrow.trianglehead.clockwise.rotate.90")
+                .font(.system(size: 13))
+                .foregroundStyle(SettingsMetrics.chromeForeground)
+                .frame(width: SettingsMetrics.headerButtonHeight, height: SettingsMetrics.headerButtonHeight)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .settingsHeaderChrome(in: Circle())
+        .help("Refresh camera list")
+        .accessibilityLabel("Refresh camera list")
     }
 
     @ViewBuilder

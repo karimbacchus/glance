@@ -137,7 +137,9 @@ struct RecognitionSettingsPage: View {
 
 /// The three selectable points on the "Match confidence" slider — named
 /// rather than exposing the raw cosine-similarity threshold directly.
-private enum MatchConfidenceLevel: Int, CaseIterable {
+/// Not `private`: `GlanceSettings` derives its fresh-install default from
+/// `.standard`, so retuning a stop here can't leave the default behind.
+enum MatchConfidenceLevel: Int, CaseIterable {
     case lessStrict, standard, moreStrict
 
     var title: String {
@@ -171,8 +173,9 @@ private enum MatchConfidenceLevel: Int, CaseIterable {
     }
 }
 
-/// The three selectable points on the "Detection distance" slider.
-private enum DetectionDistanceLevel: Int, CaseIterable {
+/// The three selectable points on the "Detection distance" slider. Not
+/// `private` for the same reason as `MatchConfidenceLevel`.
+enum DetectionDistanceLevel: Int, CaseIterable {
     case close, standard, far
 
     var title: String {

@@ -214,7 +214,7 @@ struct GeneralSettingsPage: View {
                     settings.preferredDisplayID = nil
                     settings.preferredDisplayName = nil
                 }
-                ForEach(screens.compactMap(NamedScreen.init), id: \.id) { screen in
+                ForEach(screens.compactMap { NamedScreen($0) }, id: \.id) { screen in
                     Button(screen.name) {
                         settings.preferredDisplayID = screen.id
                         settings.preferredDisplayName = screen.name

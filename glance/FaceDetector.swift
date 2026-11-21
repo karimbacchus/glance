@@ -32,11 +32,26 @@ struct DetectedFace {
 /// Pure, synchronous, CPU-bound work — `nonisolated` so it can run on a
 /// background task despite the project's default main-actor isolation.
 nonisolated enum FaceDetector {
+    /// Every request revision is pinned rather than left at Vision's default. Enrolled ArcFace templates are only
+    /// comparable to live embeddings produced through the *same* landmark → alignment path, and the liveness geometry
+    /// thresholds and capture-quality bands (`FaceSample.QualityTier`, onboarding's `qualityFloor`) were tuned against
+    /// these exact models. An unpinned request follows whatever the SDK the app is *built* with considers the default, so
+    /// a toolchain bump alone could silently shift alignment under every existing enrollment.
+    ///
+    /// macOS 27 ships revision 4 of face rectangles and landmarks, reachable only through the Swift Vision API
+    /// (`DetectFaceRectanglesRequest`/`DetectFaceLandmarksRequest`, which already default to revision 4 there). Adopting
+    /// it is a deliberate migration — validate match scores and liveness cues in Face Lab, then bump
+    /// `ArcFaceEmbedder.modelIdentifier` so existing enrollments are flagged for recapture — not a drive-by default change.
+    static let rectanglesRevision = VNDetectFaceRectanglesRequestRevision3
+    static let landmarksRevision = VNDetectFaceLandmarksRequestRevision3
+    static let captureQualityRevision = VNDetectFaceCaptureQualityRequestRevision3
+
     /// Runs face-rectangle, capture-quality, and landmarks detection on a single frame.
     static func detectFaces(in image: CGImage) throws -> [DetectedFace] {
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
 
         let rectanglesRequest = VNDetectFaceRectanglesRequest()
+        rectanglesRequest.revision = rectanglesRevision
         try handler.perform([rectanglesRequest])
         let faceObservations = rectanglesRequest.results ?? []
         guard !faceObservations.isEmpty else { return [] }
@@ -44,7 +59,9 @@ nonisolated enum FaceDetector {
         // Chained to the rectangles results (via `inputFaceObservations`) rather than run independently, so results
         // correspond 1:1 in order — avoids the fragility of matching back via boundingBox float equality.
         let qualityRequest = VNDetectFaceCaptureQualityRequest()
+        qualityRequest.revision = captureQualityRevision
         let landmarksRequest = VNDetectFaceLandmarksRequest()
+        landmarksRequest.revision = landmarksRevision
         qualityRequest.inputFaceObservations = faceObservations
         landmarksRequest.inputFaceObservations = faceObservations
         try handler.perform([qualityRequest, landmarksRequest])
