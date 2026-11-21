@@ -36,23 +36,19 @@ enum KeychainError: LocalizedError {
 enum KeychainManager {
     nonisolated static let service = "com.jonathan.glance"
 
-    /// Attributes-only existence check — must never prompt, even for access-controlled items. A prompt here would be a second
-    /// authorization on top of the real read (the "asked for my password twice" bug), so the query carries an `LAContext` with
-    /// `interactionNotAllowed`: per the SDK headers this has the same effect as the deprecated `kSecUseAuthenticationUI` =
-    /// `...UIFail` (`errSecInteractionNotAllowed` instead of UI). Only `errSecItemNotFound` means absent — any other status
-    /// (including interaction-not-allowed / auth-failed) means an item is there that we just weren't allowed to touch.
-    /// Deliberately not `kSecUseAuthenticationUISkip`: it silently drops gated items, which would report "absent" and let
-    /// `unlockSession` mint a new key over the existing one.
-    nonisolated static func exists(account: String) -> Bool {
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        let query: [String: Any] = [
+    /// Attributes-only existence check. Without a `context` it never prompts — which also means an access-controlled item
+    /// can be invisible to it (a non-interactive query hides items it isn't allowed to authorize), so to check for a gated
+    /// item, pass an `LAContext` that has already been evaluated: the item is then visible and no second prompt appears.
+    nonisolated static func exists(account: String, context: LAContext? = nil) -> Bool {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
+        if let context {
+            query[kSecUseAuthenticationContext as String] = context
+        }
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         return status != errSecItemNotFound

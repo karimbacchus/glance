@@ -121,16 +121,25 @@ enum SecureCredentialManager {
     /// Prompts Touch ID and unwraps the session key, creating it Touch-ID-gated on first run. Caches only after a real gated
     /// read-back succeeds — `SecItemAdd` alone returns success even if the user hit Cancel on the auth UI, and bridging
     /// `LAContext.evaluatePolicy` synchronously via a semaphore deadlocks the thread pool and crashes the process.
-    /// Must succeed before `savePassword`/`readPassword`. Blocking; call from a background task.
-    nonisolated static func unlockSession(reason: String) throws {
+    /// Must succeed before `savePassword`/`readPassword`.
+    nonisolated static func unlockSession(reason: String) async throws {
         if cachedKey() != nil { return }
 
-        // The existence check, not the read, decides whether a key gets created (load-bearing): a cancelled Touch ID prompt on
-        // a user-presence item reports `errSecItemNotFound`, indistinguishable from no key — deciding on the read's error would
-        // mint a fresh key (destroying the one that decrypts existing data) on every mis-tap.
-        if KeychainManager.exists(account: sessionKeyAccount) {
-            let context = LAContext()
-            context.localizedReason = reason
+        // Exactly one prompt per unlock: authenticate once up front, then hand that same, already-evaluated context to every
+        // keychain call below. Each call given no context (or a fresh one) authorizes on its own — that's how an unlock used to
+        // ask twice — and a non-interactive query can't see the gated key at all (it reported "missing").
+        let context = LAContext()
+        context.localizedReason = reason
+        do {
+            _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+        } catch {
+            // Cancelled or failed: nothing below runs, so a mis-tap can never fall through to minting a new key.
+            throw KeychainError.authenticationFailed
+        }
+
+        // The existence check, not the read, decides whether a key gets created (load-bearing) — with the authenticated
+        // context the gated key is visible, so "not found" here really means there is no key.
+        if KeychainManager.exists(account: sessionKeyAccount, context: context) {
             let data = try KeychainManager.read(account: sessionKeyAccount, context: context)
             setCachedKey(SymmetricKey(data: data))
             return
@@ -150,12 +159,8 @@ enum SecureCredentialManager {
             accessControl: access
         )
 
-        // Read back through the gated path rather than trusting the write — only a real read proves authentication happened.
-        // This is the first-run path's only prompt: the existence check above and `SecItemAdd` don't prompt (adding a gated
-        // item needs no authorization), so one unlock is still one prompt.
-        let readBackContext = LAContext()
-        readBackContext.localizedReason = reason
-        let data = try KeychainManager.read(account: sessionKeyAccount, context: readBackContext)
+        // Read back through the gated path rather than trusting the write — reusing the authenticated context, so no new prompt.
+        let data = try KeychainManager.read(account: sessionKeyAccount, context: context)
         setCachedKey(SymmetricKey(data: data))
     }
 

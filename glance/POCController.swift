@@ -43,7 +43,7 @@ final class POCController {
         sessionError = nil
         do {
             try await Task.detached(priority: .userInitiated) {
-                try SecureCredentialManager.unlockSession(reason: reason)
+                try await SecureCredentialManager.unlockSession(reason: reason)
             }.value
             isSessionUnlocked = true
         } catch {
