@@ -9,17 +9,59 @@
 <h3 align="center">Face unlock for your Mac</h3>
 
 <p align="center">
+  <sub>A fork of <a href="https://github.com/jonnyoo/glance">jonnyoo/glance</a> by Jonathan Zhou, maintained by Karim Bacchus. Not the official Glance.</sub>
+</p>
+
+<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-black.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/macOS-27%2B-black.svg" alt="macOS 27+">
   <img src="https://img.shields.io/badge/Swift-SwiftUI-black.svg" alt="Swift">
 </p>
 
 Glance brings the FaceID-like experience of your iPhone to a Mac near you. Unlock your Mac with a glance — no typing, no reaching for the TouchID key. Everything runs on-device using Apple's Vision
-and Core ML frameworks, so your face data and your Mac password never touch the internet. The UI is built into your Macbook's notch with fluid dynamic island like animations.
+and Core ML frameworks, so your face data and your Mac password never touch the internet. The UI is built into your Macbook's notch or Dynamic Island with fluid animations.
 
 
 https://github.com/user-attachments/assets/77438826-80a9-4ab2-9fc3-42407a2d0adb
 
+
+---
+
+## What's new in 1.3
+
+This fork's 1.3 release targets macOS 27 and reworks the unlock overlay, Settings and the recognition model.
+
+<table>
+  <tr>
+    <td align="center" valign="top"><img src="docs/screenshots/island-minimal.png" alt="Minimal style docked beside the Dynamic Island" width="420"><br><sub><b>Minimal</b> docks beside the camera indicator</sub></td>
+    <td align="center" valign="top"><img src="docs/screenshots/island-original.png" alt="Original style hanging below the Dynamic Island" width="300"><br><sub><b>Original</b> hangs just below the island</sub></td>
+  </tr>
+</table>
+
+<sub>The island and background in these images are drawn for illustration; the overlay is the real app.</sub>
+
+- **Native Dynamic Island support.** Glance rests invisibly on the hardware island. The *minimal* style docks beside macOS's camera-in-use indicator, and the *original* style hangs just below the island. On touchscreen Macs, tap the overlay to retry.
+- **Liquid Glass Settings.** The header controls and tab bar are glass, and rows scroll underneath them.
+- **Lens smudge hints.** The Settings camera preview and enrollment tell you when the lens looks dirty, using Vision's lens smudge detection.
+- **Stronger recognition.** InsightFace ArcFace ResNet-50 (`w600k_r50`) replaces MobileFaceNet, and face detection moves to Vision revision 4.
+- **Faster launch.** The model loads once, off the main thread.
+- **Accessibility.** Reduce Motion is respected, and "Remove password" is reachable with VoiceOver.
+- **Fixes.** The app icon is now included in source builds, and recognition defaults match the sliders.
+
+> [!IMPORTANT]
+> Updating from an earlier version requires **re-enrolling your face**. The recognition model changed, so existing embeddings are not compatible.
+
+<table>
+  <tr>
+    <td align="center" valign="top"><img src="docs/screenshots/settings-general-dark.png" alt="General settings in dark mode, rows passing under the glass tab bar" width="330"></td>
+    <td align="center" valign="top"><img src="docs/screenshots/settings-recognition-light.png" alt="Recognition settings in light mode" width="330"></td>
+    <td align="center" valign="top"><img src="docs/screenshots/settings-camera-dark.png" alt="Camera settings in dark mode with glass refresh and session controls" width="330"></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/onboarding-intro.png" alt="Onboarding intro panel at the top of the screen" width="440">
+</p>
 
 ---
 
@@ -43,7 +85,7 @@ https://github.com/user-attachments/assets/77438826-80a9-4ab2-9fc3-42407a2d0adb
 - macOS 27 or later
 - A Mac with Apple silicon (macOS 27 no longer runs on Intel Macs)
 
-<a href="https://github.com/jonnyoo/glance/releases/latest/download/Glance.dmg" target="_self"><img width="200" src="https://github.com/user-attachments/assets/cdb8af97-1ee2-4669-b7cb-dcfb56c9dd61" alt="Download for Mac" /></a>
+<a href="https://github.com/karimbacchus/glance/releases/latest/download/Glance.dmg" target="_self"><img width="200" src="https://github.com/user-attachments/assets/cdb8af97-1ee2-4669-b7cb-dcfb56c9dd61" alt="Download for Mac" /></a>
 
 Open the `.dmg` file and drag Glance to `/Applications`, then open it.
 
@@ -73,11 +115,13 @@ Open the `.dmg` file and drag Glance to `/Applications`, then open it.
 | **Face unlock** | Triggers on wake, on lock, or on pressing space at the lock screen. Pick any combination. |
 | **Multiple identities** | Enroll several people, or several versions of yourself — with glasses, a beard, different lighting. Toggle any of them off without deleting. |
 | **Liveness checks** | Watches for the motion and reflections that separate a real face from a photo. *Light* or *Heavy* strictness, or off. |
-| **Notch UI** | A closed pill that expands into a scan animation with success and failure states. Hover to retry — or turn animations off entirely and Glance stays invisible. |
+| **Notch and Dynamic Island UI** | On notched Macs, a closed pill that expands into a scan animation with success and failure states. On Dynamic Island Macs, it rests invisibly on the hardware island: *minimal* docks beside the camera indicator, *original* hangs just below. Hover (or tap, on touchscreens) to retry — or turn animations off entirely and Glance stays invisible. |
 | **Camera & display** | Choose which camera to use, including different cameras for the built-in display vs. an external monitor. |
 | **Auto-locking sessions** | The Touch ID session re-locks itself after an idle period you choose, so an unattended Mac doesn't stay authorized forever. |
+| **Liquid Glass Settings** | Glass header and tab bar on macOS 27, in light and dark appearances. |
+| **Lens smudge hints** | Warns you in the camera preview and during enrollment when the lens needs wiping. |
 | **Trackpad haptics** | Hovering over the notch will trigger haptics |
-| **Notchless Mac support** | Macs without a notch will be replaced with a pill-shape, dynamic island style design. |
+| **Notchless Mac support** | Macs with neither a notch nor an island get a floating pill-shaped, Dynamic Island style overlay. |
 | **Your data, your call** | Edit or delete your enrolment or stored password at any time. The encrypted files are removed immediately. |
 
 ---
@@ -88,7 +132,7 @@ Glance is designed to keep biometric data and credentials on-device.
 
 ### Face data
 
-Glance never stores camera images. During enrollment, each captured face is converted into a **512-dimensional embedding** using an ArcFace-based Core ML model. The original frame is then discarded.
+Glance never stores camera images. During enrollment, each captured face is converted into a **512-dimensional embedding** using the InsightFace **ArcFace `w600k_r50`** (ResNet-50) model, run through Core ML. The original frame is then discarded.
 
 Embeddings are stored locally and encrypted with **AES-GCM**.
 
@@ -142,7 +186,7 @@ debug section should appear in the sidebar.
 ### Prerequisites
 
 - macOS 27+
-- Xcode 27+
+- Xcode 27+ with the macOS 27 SDK
 
 
 
@@ -150,14 +194,18 @@ debug section should appear in the sidebar.
 
 1. Clone repository:
   ```bash
-   git clone https://github.com/jonnyoo/glance.git
+   git clone https://github.com/karimbacchus/glance.git
    cd glance
   ```
 2. Open in Xcode:
   ```bash
    open glance.xcodeproj
   ```
-3. Run the project:
+3. Set up signing. The project is configured to sign with the fork owner's Developer ID team and a provisioning profile named
+   "Glance", so it will not build for you as-is. In the target's *Signing & Capabilities*, set your own team, change the
+   bundle identifier (currently `com.karimbacchus.glance`) to one you own, and use your own provisioning profile. A profile is
+   required because the app uses keychain access groups.
+4. Run the project:
   - Click `run` or press `Cmd + R`.
 
 
@@ -166,14 +214,17 @@ debug section should appear in the sidebar.
 
 Not currently accepting PRs. Feel free to fork this project.
 
-App feedback goes to [tryglance.app/feedback](https://tryglance.app/feedback).
+Bug reports and feedback for this fork go to [GitHub Issues](https://github.com/karimbacchus/glance/issues). For the original
+project, see [jonnyoo/glance](https://github.com/jonnyoo/glance) and [tryglance.app/feedback](https://tryglance.app/feedback).
 
 ## Acknowledgements
 
 - **[The Boring Notch](https://github.com/TheBoredTeam/boring.notch)** — for the notch window
 physics.
 - **[InsightFace](https://github.com/deepinsight/insightface)** — the ArcFace model doing the
-recognition.
+recognition. InsightFace's pretrained models are released for non-commercial research use only; keep that in mind before
+redistributing or commercializing builds of Glance.
+- **[Jonathan Zhou](https://github.com/jonnyoo/glance)** — the original Glance, which this fork builds on.
 - **[Alcove](https://tryalcove.com)** — big design inspiration.
 
 
