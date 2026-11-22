@@ -16,6 +16,8 @@ nonisolated struct FaceRecognitionResult {
     let alignmentTier: AlignmentTier
     let quality: Float?
     let face: DetectedFace
+    /// Gamma applied by `LowLightNormalizer` to the aligned face (ArcFace path only); nil when the image was fed to the embedder untouched.
+    let lowLightGain: Float?
 }
 
 nonisolated enum FaceRecognitionPipelineError: LocalizedError {
@@ -77,13 +79,17 @@ final class FaceRecognitionPipeline {
 
     /// Aligns and embeds an already-chosen face; enrollment uses this to bypass the prominence filter so a too-small face reads as "move closer" rather than "nobody there".
     nonisolated func recognize(_ face: DetectedFace, in frame: CGImage) throws -> FaceRecognitionResult {
-        let inputImage: CGImage
+        var inputImage: CGImage
         let tier: AlignmentTier
+        var lowLightGain: Float?
         if embedder.requiresAlignment {
             guard let aligned = FaceAligner.align(face, from: frame) else {
                 throw FaceRecognitionPipelineError.alignmentFailed
             }
-            inputImage = aligned.image
+            // Dark rooms leave the aligned face dim and noisy, which hurts ArcFace; this is a no-op above the 0.25 luma cutoff so good-light embeddings stay identical to existing enrollments. Validate in Face Lab.
+            let normalized = LowLightNormalizer.normalize(aligned.image)
+            inputImage = normalized.image
+            lowLightGain = normalized.gain
             tier = aligned.tier
         } else {
             guard let cropped = FaceDetector.crop(face, from: frame) else {
@@ -94,7 +100,7 @@ final class FaceRecognitionPipeline {
         }
 
         let embedding = try embedder.embedding(for: inputImage)
-        return FaceRecognitionResult(embedding: embedding, alignedImage: inputImage, alignmentTier: tier, quality: face.quality, face: face)
+        return FaceRecognitionResult(embedding: embedding, alignedImage: inputImage, alignmentTier: tier, quality: face.quality, face: face, lowLightGain: lowLightGain)
     }
 
     /// Largest face by area with no prominence cutoff — unlike `selectDominantFace`, so enrollment can tell "too far" apart from "no face".

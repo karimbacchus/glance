@@ -82,6 +82,7 @@ final class NotchOverlayController {
     private var onActivate: (() -> Void)?
 
     private let windowController = NotchWindowController()
+    private let lowLightGlow = LowLightGlowController()
     private var resolveTask: Task<Void, Never>?
     private var scanTimeoutTask: Task<Void, Never>?
 
@@ -146,6 +147,8 @@ final class NotchOverlayController {
     /// naturally: setting `isArmed = false` is enough, since the already-scheduled
     /// `collapse()` checks `isArmed` once its hold expires and hides for real then.
     func disarm() {
+        // Before the in-flight-collapse early return below: the glow must never outlive the lock screen.
+        lowLightGlow.setActive(false)
         isArmed = false
         onActivate = nil
         // Undocked before the guard: if a success collapse is already in flight, this
@@ -196,6 +199,16 @@ final class NotchOverlayController {
             guard let self, !Task.isCancelled, self.phase == .scanning else { return }
             await self.collapse()
         }
+    }
+
+    // MARK: - Low-light glow
+
+    /// Fades a warm-white edge glow in/out on the lock screen so the camera has light
+    /// to see the face by. Idempotent; no-op when the setting is off (except turning off,
+    /// so toggling the setting mid-glow can't strand it).
+    func setLowLightIllumination(_ active: Bool) {
+        guard !active || GlanceSettings.shared.lowLightGlowEnabled else { return }
+        lowLightGlow.setActive(active)
     }
 
     // MARK: - Window priming (first show only)

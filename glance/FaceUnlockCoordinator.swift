@@ -161,6 +161,7 @@ final class FaceUnlockCoordinator {
         autoRetryTask?.cancel()
         autoRetryTask = nil
         camera.stop()
+        NotchOverlayController.shared.setLowLightIllumination(false)
         NotchOverlayController.shared.disarm()
         // Covers isEnabled being switched off directly, keeping "disarmed" and "not listening for space" in lockstep.
         spaceKeyMonitor.stop()
@@ -316,6 +317,18 @@ final class FaceUnlockCoordinator {
         }
     }
 
+    /// Quality-weighted mean so a sharp frame outvotes a murky one; the floor keeps an unscored or terrible frame from vanishing entirely.
+    private static func fusedEmbedding(of frames: [(embedding: [Float], quality: Float?)]) -> [Float] {
+        guard let first = frames.first else { return [] }
+        var sum = [Float](repeating: 0, count: first.embedding.count)
+        for frame in frames where frame.embedding.count == sum.count {
+            let weight = max(frame.quality ?? 0.5, 0.05)
+            let normalized = FaceEmbedding.l2Normalized(frame.embedding)
+            for i in 0..<sum.count { sum[i] += normalized[i] * weight }
+        }
+        return FaceEmbedding.l2Normalized(sum)
+    }
+
     private enum ScanOutcome {
         case matched
         case consistentlyWrongFace
@@ -329,6 +342,8 @@ final class FaceUnlockCoordinator {
     /// `requireOverlayScanning` bails early once the overlay's own timeout collapses the UI — only applied when there is an
     /// overlay, since headlessly `phase` never becomes `.scanning` at all.
     private func observeScanWindow(deadline: Date, requireOverlayScanning: Bool) async -> ScanOutcome {
+        // Every return path ends the window, and a glow left on would light the lock screen indefinitely.
+        defer { NotchOverlayController.shared.setLowLightIllumination(false) }
         let livenessEnabled = GlanceSettings.shared.livenessChecksEnabled
         let liveness = LivenessAnalyzer()
         liveness.modeProvider = { GlanceSettings.shared.livenessMode }
@@ -345,6 +360,22 @@ final class FaceUnlockCoordinator {
         /// Cheap way to detect "no new camera frame yet" vs. "fresh frame" — without it a repeat frame would corrupt the liveness motion signal.
         var lastProcessedFrameID: UInt64?
 
+        /// Recent frames of the same face. Single low-light frames are noisy; a weighted mean of a few is much steadier.
+        var recentFrames: [(embedding: [Float], quality: Float?)] = []
+        var lastFaceCenter: CGPoint?
+        let maxFusedFrames = 4
+        /// A different person stepping in moves the selected box far more than one person's natural frame-to-frame drift.
+        let sameFaceCenterTolerance: CGFloat = 0.15
+        /// How far below the threshold the *current* frame may fall while a fused score carries the match.
+        let currentFrameMargin: Float = 0.08
+
+        /// Consecutive dark frames before the screen glow turns on; latched once on because the glow itself brightens the
+        /// scene, and switching off when luma recovers would flicker.
+        var darkFrameStreak = 0
+        var lowLightGlowOn = false
+        let darkLumaThreshold: Float = 0.18
+        let darkFramesRequired = 3
+
         while Date() < deadline, !Task.isCancelled,
               !requireOverlayScanning || NotchOverlayController.shared.phase == .scanning {
             guard LockMonitor.isScreenActuallyLocked() else { return .noResolution }
@@ -355,6 +386,16 @@ final class FaceUnlockCoordinator {
                 continue
             }
             lastProcessedFrameID = frame.id
+
+            // Judged before detection on purpose: in a truly dark room Vision often finds no face at all, which is exactly
+            // when the glow is needed.
+            if !lowLightGlowOn {
+                darkFrameStreak = frame.meanLuma < darkLumaThreshold ? darkFrameStreak + 1 : 0
+                if darkFrameStreak >= darkFramesRequired {
+                    lowLightGlowOn = true
+                    NotchOverlayController.shared.setLowLightIllumination(true)
+                }
+            }
 
             let pipeline = self.pipeline
             let previousBoundingBox = lastFaceBoundingBox
@@ -367,10 +408,21 @@ final class FaceUnlockCoordinator {
             guard let (result, livenessFrame) = outcome else {
                 wrongFaceStartedAt = nil
                 lastFaceBoundingBox = nil
+                recentFrames.removeAll()
+                lastFaceCenter = nil
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 continue
             }
             lastFaceBoundingBox = result.face.normalizedBoundingBox
+
+            let box = result.face.normalizedBoundingBox
+            let center = CGPoint(x: box.midX, y: box.midY)
+            if let lastFaceCenter, hypot(center.x - lastFaceCenter.x, center.y - lastFaceCenter.y) > sameFaceCenterTolerance {
+                recentFrames.removeAll()
+            }
+            lastFaceCenter = center
+            recentFrames.append((result.embedding, result.quality))
+            if recentFrames.count > maxFusedFrames { recentFrames.removeFirst() }
 
             // Fed regardless of match, so liveness stays a genuinely independent gate rather than one starved by recognition confidence.
             var confirmingCue: LivenessCue?
@@ -390,8 +442,24 @@ final class FaceUnlockCoordinator {
             }
 
             // `activeIdentities`, not `identities`: someone switched off on the Your Face page stays enrolled but must not unlock.
-            let scored = pipeline.score(result.embedding, against: FaceEnrollmentStore.shared.activeIdentities)
-            let matched = pipeline.bestMatch(in: scored, threshold: matchThreshold)
+            let activeIdentities = FaceEnrollmentStore.shared.activeIdentities
+            let singleScored = pipeline.score(result.embedding, against: activeIdentities)
+            var matched = pipeline.bestMatch(in: singleScored, threshold: matchThreshold)
+            var fusedFrameCount: Int?
+            if recentFrames.count >= 2 {
+                let fused = Self.fusedEmbedding(of: recentFrames)
+                let fusedScored = pipeline.score(fused, against: activeIdentities)
+                if let fusedMatch = pipeline.bestMatch(in: fusedScored, threshold: matchThreshold) {
+                    // Averaging must only smooth noise, never let stale frames vouch for the current one: the frame in front of the
+                    // camera right now must itself still resemble the matched identity, or "a detected face that fails to match
+                    // clears readyMatch" would be defeated by whatever was buffered before.
+                    let currentSimilarity = singleScored.first { $0.identity.id == fusedMatch.identity.id }?.centroidSimilarity
+                    if let currentSimilarity, currentSimilarity >= matchThreshold - currentFrameMargin {
+                        matched = fusedMatch
+                        fusedFrameCount = recentFrames.count
+                    }
+                }
+            }
 
             if let matched {
                 wrongFaceStartedAt = nil
@@ -411,7 +479,8 @@ final class FaceUnlockCoordinator {
                 let livenessNote = livenessEnabled
                     ? (confirmingCue.map { "live via \($0.title)" } ?? "liveness clear")
                     : "liveness off"
-                lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.centroidSimilarity)), \(livenessNote)."
+                let fusionNote = fusedFrameCount.map { "fused \($0) frames, " } ?? ""
+                lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.centroidSimilarity)), \(fusionNote)\(livenessNote)."
                 await pocController.injectStoredPassword(requireAuthoritativeLock: true)
                 return .matched
             }

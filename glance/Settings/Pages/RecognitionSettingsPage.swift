@@ -91,6 +91,19 @@ struct RecognitionSettingsPage: View {
                     )
                 }
             }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSectionTitle(text: "Low light")
+                SettingsGroup {
+                    SettingsRowContent(
+                        title: "Light up in the dark",
+                        subtitle: "Glows the screen edges on the lock screen when it's too dark to see your face.",
+                        subtitleMaxWidth: SettingsMetrics.rowSubtitleMaxWidth
+                    ) {
+                        GlanceToggle(isOn: $settings.lowLightGlowEnabled)
+                    }
+                }
+            }
         }
     }
 

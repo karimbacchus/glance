@@ -7,6 +7,7 @@
 
 @preconcurrency import AVFoundation
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import Observation
 
 enum CameraPermission {
@@ -21,6 +22,8 @@ struct CameraFrame {
     let image: CGImage
     let source: CIImage
     let sourceSize: CGSize
+    /// Mean Rec.709 luma of the working frame, 0...1; lets callers react to dim scenes without re-reading pixels.
+    let meanLuma: Float
 }
 
 @Observable
@@ -68,7 +71,9 @@ final class CameraManager: NSObject {
         configureSessionIfNeeded()
         reconcileDeviceIfNeeded()
 
-        sessionQueue.async { [session] in
+        sessionQueue.async { [session, framePublisher] in
+            // Same queue as the delegate, so the settle window is reset before any new frame can be delivered.
+            framePublisher.resetSettleWindow()
             if !session.isRunning {
                 session.startRunning()
             }
@@ -133,7 +138,7 @@ final class CameraManager: NSObject {
         if let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) {
             session.addInput(input)
             currentInput = input
-            selectHighestResolutionFormat(for: device)
+            selectLowLightFriendlyFormat(for: device)
         } else {
             currentInput = nil
             errorMessage = "No camera device found."
@@ -141,21 +146,32 @@ final class CameraManager: NSObject {
         session.commitConfiguration()
     }
 
-    /// Highest resolution regardless of fps — Vision still works from the downscaled frame; this only affects
-    /// what `CameraFrame.source` (and therefore `renderCrop`) has to work with.
-    private func selectHighestResolutionFormat(for device: AVCaptureDevice) {
-        let best = device.formats.max { lhs, rhs in
-            let l = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-            let r = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
-            return Int(l.width) * Int(l.height) < Int(r.width) * Int(r.height)
+    /// Prefers a 1280-1920px-wide format running at >= 30 fps. Detection works from a 640px copy and `renderCrop`
+    /// caps at 448px, so larger formats only cost frame rate and low-light SNR (smaller formats are usually binned).
+    /// Falls back to the largest >= 30 fps format, then the largest overall.
+    private func selectLowLightFriendlyFormat(for device: AVCaptureDevice) {
+        func pixels(_ format: AVCaptureDevice.Format) -> Int {
+            let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            return Int(d.width) * Int(d.height)
         }
+        func isFastEnough(_ format: AVCaptureDevice.Format) -> Bool {
+            format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
+        }
+        let fast = device.formats.filter(isFastEnough)
+        let preferred = fast.filter {
+            let width = CMVideoFormatDescriptionGetDimensions($0.formatDescription).width
+            return (1280...1920).contains(width)
+        }
+        let best = preferred.max { pixels($0) < pixels($1) }
+            ?? fast.max { pixels($0) < pixels($1) }
+            ?? device.formats.max { pixels($0) < pixels($1) }
         guard let best else { return }
         do {
             try device.lockForConfiguration()
             device.activeFormat = best
             device.unlockForConfiguration()
         } catch {
-            errorMessage = "Couldn't select the camera's highest-resolution format: \(error.localizedDescription)"
+            errorMessage = "Couldn't select the camera's format: \(error.localizedDescription)"
         }
     }
 
@@ -205,16 +221,57 @@ final class CameraManager: NSObject {
     private final class FramePublisher: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         weak var owner: CameraManager?
         private let ciContext = CIContext()
+        /// Reused across frames; only touched on `sessionQueue`.
+        private let areaAverage = CIFilter.areaAverage()
+        /// Auto-exposure hasn't converged right after `startRunning()`, so early frames are badly exposed. Frames are
+        /// dropped while the device reports it is still adjusting, but only within this window so a camera that never
+        /// reports settled still delivers. Only touched on `sessionQueue`.
+        private let settleWindow: CFAbsoluteTime = 0.5
+        private var settleDeadline: CFAbsoluteTime?
         /// Detection only needs a modest resolution; the live preview renders from the capture session directly and
         /// is unaffected. The undownscaled `source` is kept alongside for callers needing native pixels (`renderCrop`).
         private let maxLongEdge: CGFloat = 640
         private var nextFrameID: UInt64 = 0
+
+        /// Must be called on `sessionQueue`, before `startRunning()`.
+        func resetSettleWindow() {
+            settleDeadline = nil
+        }
+
+        private func meanLuma(of image: CIImage) -> Float {
+            areaAverage.inputImage = image
+            areaAverage.extent = image.extent
+            defer { areaAverage.inputImage = nil }
+            guard let output = areaAverage.outputImage else { return 0 }
+            var rgba = [Float](repeating: 0, count: 4)
+            rgba.withUnsafeMutableBytes { buffer in
+                ciContext.render(
+                    output,
+                    toBitmap: buffer.baseAddress!,
+                    rowBytes: 4 * MemoryLayout<Float>.size,
+                    bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                    format: .RGBAf,
+                    colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
+                )
+            }
+            let luma = 0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2]
+            return min(max(luma, 0), 1)
+        }
 
         func captureOutput(
             _ output: AVCaptureOutput,
             didOutput sampleBuffer: CMSampleBuffer,
             from connection: AVCaptureConnection
         ) {
+            let now = CFAbsoluteTimeGetCurrent()
+            let deadline = settleDeadline ?? now + settleWindow
+            settleDeadline = deadline
+            if now < deadline,
+               let device = (connection.inputPorts.first?.input as? AVCaptureDeviceInput)?.device,
+               device.isAdjustingExposure {
+                return
+            }
+
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
             let sourceExtent = sourceImage.extent
@@ -231,7 +288,8 @@ final class CameraManager: NSObject {
                 id: nextFrameID,
                 image: cgImage,
                 source: sourceImage,
-                sourceSize: sourceExtent.size
+                sourceSize: sourceExtent.size,
+                meanLuma: meanLuma(of: ciImage)
             )
 
             Task { @MainActor [weak owner] in

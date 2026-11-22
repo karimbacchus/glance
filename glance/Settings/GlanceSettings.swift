@@ -112,6 +112,7 @@ final class GlanceSettings {
         static let playUnlockAnimation = "GlanceSettings.playUnlockAnimation"
         static let unlockTriggers = "GlanceSettings.unlockTriggers"
         static let retryOnHover = "GlanceSettings.retryOnHover"
+        static let lowLightGlowEnabled = "GlanceSettings.lowLightGlowEnabled"
         static let faceDetectionSeconds = "GlanceSettings.faceDetectionSeconds"
         static let autoRetryOnce = "GlanceSettings.autoRetryOnce"
         static let hapticFeedbackEnabled = "GlanceSettings.hapticFeedbackEnabled"
@@ -187,6 +188,11 @@ final class GlanceSettings {
     }
     var retryOnHover: Bool {
         didSet { defaults.set(retryOnHover, forKey: Key.retryOnHover) }
+    }
+    /// Draws a warm-white glow around the lock screen's edges when the camera
+    /// image is too dark, since the display is then the only light on the face.
+    var lowLightGlowEnabled: Bool {
+        didSet { defaults.set(lowLightGlowEnabled, forKey: Key.lowLightGlowEnabled) }
     }
     /// How long each scan cycle looks for a face before giving up. Must stay
     /// equal to `FaceUnlockCoordinator.scanWindowDuration` and
@@ -332,6 +338,7 @@ final class GlanceSettings {
         unlockTriggers = storedTriggers.map(Set.init).flatMap { $0.isEmpty ? nil : $0 }
             ?? [.onWake, .onLock]
         retryOnHover = defaults.object(forKey: Key.retryOnHover) as? Bool ?? true
+        lowLightGlowEnabled = defaults.object(forKey: Key.lowLightGlowEnabled) as? Bool ?? true
         faceDetectionSeconds = (defaults.object(forKey: Key.faceDetectionSeconds) as? Int)
             .map { min(max($0, Self.faceDetectionRange.lowerBound), Self.faceDetectionRange.upperBound) }
             ?? 5
